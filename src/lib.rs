@@ -286,7 +286,7 @@ pub enum BlockIterator {
 }
 
 impl BlockIterator {
-    pub fn custom(range: impl Iterator<Item = BlockHeight> + Send + 'static) -> Self {
+    pub fn iterator(range: impl Iterator<Item = BlockHeight> + Send + 'static) -> Self {
         BlockIterator::Iterator(Box::new(range))
     }
 }

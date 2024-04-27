@@ -40,3 +40,8 @@ required-features = [ "lake" ]
 name = "ft-transfers"
 path = "examples/ft_transfers.rs"
 required-features = [ "fastnear-data-server" ]
+
+[[example]]
+name = "download"
+path = "examples/download.rs"
+required-features = [ "fastnear-data-server" ]

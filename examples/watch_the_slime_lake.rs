@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         indexer,
         LakeStreamer::mainnet(),
         IndexerOptions {
-            range: BlockIterator::custom(112_037_807..=112_037_810),
+            range: BlockIterator::iterator(112_037_807..=112_037_810),
             ..Default::default()
         },
     )
