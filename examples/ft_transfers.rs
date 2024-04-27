@@ -22,7 +22,7 @@ impl Indexer for FtTransferIndexer {
     // We're not interested in transactions overall, so even if some receipt after the transfer fails,
     // it doesn't matter, as long as the transfer was successful
     async fn process_receipt(
-        &self,
+        &mut self,
         receipt: &near_indexer_primitives::IndexerExecutionOutcomeWithReceipt,
     ) -> Result<(), Self::Error> {
         if let ExecutionStatusView::Failure(_) = receipt.execution_outcome.outcome.status {
@@ -65,14 +65,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_module_level("inindexer::performance", log::LevelFilter::Debug)
         .init()?;
 
-    let indexer = FtTransferIndexer;
+    let mut indexer = FtTransferIndexer;
 
     run_indexer(
-        indexer,
+        &mut indexer,
         FastNearDataServerProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
-                save_file: PathBuf::from("example_ft_trasnfers_last_block.txt"),
+                save_location: Box::new(PathBuf::from("example_ft_trasnfers_last_block.txt")),
                 start_height_if_does_not_exist: 114_625_946,
                 ctrl_c_handler: true,
             }),

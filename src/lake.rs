@@ -59,23 +59,27 @@ impl MessageStreamer for LakeStreamer {
         );
         let (tx, rx) = tokio::sync::mpsc::channel(self.blocks_preload_pool_size);
         let join_handle_2 = tokio::spawn(async move {
-            let mut last_block_height = start_block_height;
-            if let Some(block) = streamer.recv().await {
-                last_block_height = block.block.header.height;
-                tx.send(block)
+            let mut last_requested_block_height = start_block_height;
+            while let Some(received_block) = streamer.recv().await {
+                // This part is a bit tricky, it checks if our range is consecutive and ascending, which
+                // needs to handle skipped block heights (forks) properly.
+                // Assuming receiving `==` is fine because the first block will be the same, and
+                // assuming receiving `>` is impossible because lake framework always sends blocks in ascending order.
+                while last_requested_block_height < received_block.block.header.height {
+                    if let Some(next_requested_block_height) = range.next() {
+                        if last_requested_block_height + 1 != next_requested_block_height {
+                            return Err(
+                                LakeError::LakeOnlySupportsConsecutiveAscendingBlockHeights,
+                            );
+                        }
+                        last_requested_block_height += 1;
+                    } else {
+                        return Ok(());
+                    }
+                }
+                tx.send(received_block)
                     .await
                     .map_err(|err| LakeError::SendError(err))?;
-            }
-            while let Some(next_block_height) = range.next() {
-                if last_block_height + 1 != next_block_height {
-                    return Err(LakeError::LakeOnlySupportsConsecutiveAscendingBlockHeights);
-                }
-                if let Some(block) = streamer.recv().await {
-                    last_block_height = block.block.header.height;
-                    tx.send(block)
-                        .await
-                        .map_err(|err| LakeError::SendError(err))?;
-                }
             }
             log::info!("Block range ended.");
             drop(streamer);

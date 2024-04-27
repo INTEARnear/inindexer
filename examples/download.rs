@@ -25,7 +25,7 @@ struct DownloadIndexer {
 impl Indexer for DownloadIndexer {
     type Error = String;
 
-    async fn process_block(&self, block: &StreamerMessage) -> Result<(), Self::Error> {
+    async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
         let height = block.block.header.height;
         let stringified = height.to_string();
         let (folder1, folder2, file) = (
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (StartBlockHeight::Genesis, EndBlockHeight::AutoContinue) => {
             BlockIterator::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
-                save_file: path.join("last_block.txt"),
+                save_location: Box::new(path.join("last_block.txt")),
                 ctrl_c_handler: true,
             })
         }
@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (StartBlockHeight::BlockHeight(start_block_height), EndBlockHeight::AutoContinue) => {
             BlockIterator::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
-                save_file: path.join("last_block.txt"),
+                save_location: Box::new(path.join("last_block.txt")),
                 ctrl_c_handler: true,
             })
         }
@@ -124,10 +124,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ) => BlockIterator::iterator(start_block_height..=end_block_height),
     };
 
-    let indexer = DownloadIndexer { path };
+    let mut indexer = DownloadIndexer { path };
 
     run_indexer(
-        indexer,
+        &mut indexer,
         FastNearDataServerProvider::mainnet(),
         IndexerOptions {
             range,

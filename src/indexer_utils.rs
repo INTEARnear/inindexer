@@ -31,6 +31,19 @@ pub fn deserialize_json_log<T: for<'de> Deserialize<'de>>(
     serde_json::from_str(log)
 }
 
+#[test]
+fn test_deserialize_json_log() {
+    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","amount":"250000000000000000000000"}}"#;
+    let log_data: EventLogData<FtTransferLog> = deserialize_json_log(log).unwrap();
+    assert_eq!(log_data.standard, "nep141");
+    assert_eq!(log_data.version, "1.0.0");
+    assert_eq!(log_data.event, "ft_transfer");
+    assert_eq!(log_data.data.old_owner_id, "slimedragon.near");
+    assert_eq!(log_data.data.new_owner_id, "intear.near");
+    assert_eq!(log_data.data.amount, 250_000_000_000_000_000_000_000);
+    assert_eq!(log_data.data.memo, None);
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(transparent)]
 pub struct StringifiedU128(String);
@@ -65,6 +78,15 @@ impl From<Balance> for StringifiedBalance {
     fn from(value: Balance) -> Self {
         Self(value.to_string())
     }
+}
+
+#[test]
+fn test_stringified_balance() {
+    let balance = 250_000_000_000_000_000_000_000;
+    let stringified_balance = StringifiedBalance::from(balance);
+    assert_eq!(stringified_balance.0, "250000000000000000000000");
+    let balance = Balance::try_from(&stringified_balance).unwrap();
+    assert_eq!(balance, 250_000_000_000_000_000_000_000);
 }
 
 pub const NEP141_EVENT_STANDARD_STRING: &str = "nep141";
@@ -152,6 +174,16 @@ impl FtTransferLog {
     }
 }
 
+#[test]
+fn test_ft_transfer_log_deserialize_tkn_farm_log() {
+    let log = "Transfer 250000000000000000000000 from slimedragon.near to intear.near";
+    let transfer_log = FtTransferLog::deserialize_tkn_farm_log(log).unwrap();
+    assert_eq!(transfer_log.old_owner_id, "slimedragon.near");
+    assert_eq!(transfer_log.new_owner_id, "intear.near");
+    assert_eq!(transfer_log.amount, 250_000_000_000_000_000_000_000);
+    assert_eq!(transfer_log.memo, None);
+}
+
 /// An event log to capture token minting
 #[derive(Deserialize, Debug, Clone)]
 pub struct NftMintLog {
@@ -218,6 +250,13 @@ impl EventLogData<FtMintLog> {
     }
 }
 
+#[test]
+fn test_ft_mint_log_validate() {
+    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_mint","data":{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}}"#;
+    let log_data: EventLogData<FtMintLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
+}
+
 impl EventLogData<FtBurnLog> {
     pub fn validate(&self) -> bool {
         if let Ok(version) = self.parse_semver() {
@@ -228,6 +267,13 @@ impl EventLogData<FtBurnLog> {
             false
         }
     }
+}
+
+#[test]
+fn test_ft_burn_log_validate() {
+    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_burn","data":{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}}"#;
+    let log_data: EventLogData<FtBurnLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
 }
 
 impl EventLogData<FtTransferLog> {
@@ -242,6 +288,13 @@ impl EventLogData<FtTransferLog> {
     }
 }
 
+#[test]
+fn test_ft_transfer_log_validate() {
+    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","amount":"250000000000000000000000"}}"#;
+    let log_data: EventLogData<FtTransferLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
+}
+
 impl EventLogData<NftMintLog> {
     pub fn validate(&self) -> bool {
         if let Ok(version) = self.parse_semver() {
@@ -252,6 +305,13 @@ impl EventLogData<NftMintLog> {
             false
         }
     }
+}
+
+#[test]
+fn test_nft_mint_log_validate() {
+    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_mint","data":{"owner_id":"slimedragon.near","token_ids":["1","2","3"]}}"#;
+    let log_data: EventLogData<NftMintLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
 }
 
 impl EventLogData<NftBurnLog> {
@@ -266,6 +326,13 @@ impl EventLogData<NftBurnLog> {
     }
 }
 
+#[test]
+fn test_nft_burn_log_validate() {
+    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_burn","data":{"owner_id":"slimedragon.near","token_ids":["1","2","3"]}}"#;
+    let log_data: EventLogData<NftBurnLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
+}
+
 impl EventLogData<NftTransferLog> {
     pub fn validate(&self) -> bool {
         if let Ok(version) = self.parse_semver() {
@@ -278,6 +345,13 @@ impl EventLogData<NftTransferLog> {
     }
 }
 
+#[test]
+fn test_nft_transfer_log_validate() {
+    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","token_ids":["1","2","3"]}}"#;
+    let log_data: EventLogData<NftTransferLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
+}
+
 impl EventLogData<NftContractMetadataUpdateLog> {
     pub fn validate(&self) -> bool {
         if let Ok(version) = self.parse_semver() {
@@ -288,4 +362,12 @@ impl EventLogData<NftContractMetadataUpdateLog> {
             false
         }
     }
+}
+
+#[test]
+fn test_nft_contract_metadata_update_log_validate() {
+    let log =
+        r#"{"standard":"nep171","version":"1.0.0","event":"contract_metadata_update","data":{}}"#;
+    let log_data: EventLogData<NftContractMetadataUpdateLog> = deserialize_json_log(log).unwrap();
+    assert!(log_data.validate());
 }

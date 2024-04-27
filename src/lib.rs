@@ -27,6 +27,8 @@ pub mod indexer_utils;
 pub mod lake;
 #[cfg(feature = "message-provider")]
 pub mod message_provider;
+#[cfg(test)]
+mod tests;
 
 use std::{
     fmt::{Debug, Display},
@@ -68,25 +70,28 @@ pub trait MessageStreamer {
 pub trait Indexer: Send + Sync + 'static {
     type Error: Display + Debug + Send + Sync + 'static;
 
-    async fn process_block(&self, _block: &StreamerMessage) -> Result<(), Self::Error> {
+    async fn process_block(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
         Ok(())
     }
 
     async fn process_transaction(
-        &self,
+        &mut self,
         _transaction: &IndexerTransactionWithOutcome,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
     async fn process_receipt(
-        &self,
+        &mut self,
         _receipt: &IndexerExecutionOutcomeWithReceipt,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    async fn on_transaction(&self, _transaction: &CompletedTransaction) -> Result<(), Self::Error> {
+    async fn on_transaction(
+        &mut self,
+        _transaction: &CompletedTransaction,
+    ) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -112,7 +117,7 @@ pub async fn run_indexer<
     I: Indexer + Send + Sync + 'static,
     S: MessageStreamer + Send + Sync + 'static,
 >(
-    indexer: I,
+    indexer: &mut I,
     streamer: S,
     options: IndexerOptions,
 ) -> Result<(), InIndexerError<S::Error>> {
@@ -156,8 +161,8 @@ pub async fn run_indexer<
     let is_stopping = Arc::new(AtomicBool::new(false));
     let is_stopping_2 = Arc::clone(&is_stopping);
 
-    let prefetch_range = (start_block_height.max(options.genesis_block_height)
-        - prefetch_blocks as BlockHeightDelta)..start_block_height;
+    let prefetch_range = ((start_block_height - prefetch_blocks as BlockHeightDelta)
+        .max(options.genesis_block_height))..start_block_height;
     let first_block_to_process = std::iter::once(start_block_height);
     let postfetch_iter = std::iter::repeat_with(move || {
         if !is_stopping_2.swap(true, Ordering::Relaxed) {
@@ -196,7 +201,7 @@ pub async fn run_indexer<
         );
     }
 
-    indexer_state.on_start(&indexer);
+    indexer_state.on_start(indexer);
 
     while let Some(message) = streamer.recv().await {
         let is_stopping = is_stopping.load(Ordering::Relaxed);
@@ -204,7 +209,10 @@ pub async fn run_indexer<
             height: message.block.header.height,
             preprocess: options.preprocess_transactions.is_some(),
             preprocess_insert_new: !is_stopping,
-            handle_by_indexer: !prefetch_range.contains(&message.block.header.height),
+            handle_by_indexer: !is_stopping
+                && !prefetch_range.contains(&message.block.header.height),
+            handle_preprocessed_transactions_by_indexer: !prefetch_range
+                .contains(&message.block.header.height),
         };
 
         if message.block.header.height == start_block_height {
@@ -212,7 +220,7 @@ pub async fn run_indexer<
         }
 
         match indexer_state
-            .process_block(&indexer, &message, &processing_options)
+            .process_block(indexer, &message, &processing_options)
             .await
         {
             Ok(()) => {}
@@ -246,7 +254,7 @@ pub async fn run_indexer<
     }
 
     drop(streamer);
-    indexer_state.on_end(&indexer);
+    indexer_state.on_end(indexer);
     handle
         .await
         .map_err(InIndexerError::Join)?
@@ -295,9 +303,7 @@ impl Debug for BlockIterator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlockIterator::Iterator(_) => write!(f, "Iterator"),
-            BlockIterator::AutoContinue(auto_continue) => {
-                write!(f, "AutoContinue({:?})", auto_continue)
-            }
+            BlockIterator::AutoContinue(_) => write!(f, "AutoContinue"),
             BlockIterator::Custom(_, _) => write!(f, "Custom"),
         }
     }
@@ -339,11 +345,10 @@ impl Default for IndexerOptions {
     }
 }
 
-#[derive(Debug)]
 pub struct AutoContinue {
     /// Path to the file where the last processed block height will be saved. It's a simple text file with
     /// a single number.
-    pub save_file: PathBuf,
+    pub save_location: Box<dyn SaveLocation>,
     /// If the save file does not exist, the indexer will start from this height. Default is the mainnet
     /// genesis block height.
     pub start_height_if_does_not_exist: BlockHeight,
@@ -354,34 +359,59 @@ pub struct AutoContinue {
 
 impl AutoContinue {
     pub async fn get_start_block(&self) -> BlockHeight {
-        if !tokio::fs::try_exists(&self.save_file)
+        self.save_location
+            .load()
             .await
-            .expect("Failed to check if save file exists")
-        {
-            log::info!(
-                "Save file does not exist, starting from block {}",
-                self.start_height_if_does_not_exist
-            );
-            return self.start_height_if_does_not_exist;
-        }
-        let contents = tokio::fs::read_to_string(&self.save_file)
-            .await
-            .expect("Failed to read save file");
-        contents
-            .trim()
-            .replace([',', ' ', '.'], "")
-            .parse()
-            .expect("Failed to parse save file contents")
+            .unwrap_or(self.start_height_if_does_not_exist)
     }
 }
 
 impl Default for AutoContinue {
     fn default() -> Self {
         Self {
-            save_file: PathBuf::from("last-processed-block.txt"),
+            save_location: Box::new(PathBuf::from("last-processed-block.txt")),
             start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
             ctrl_c_handler: true,
         }
+    }
+}
+
+#[async_trait]
+pub trait SaveLocation: Send + Sync {
+    async fn load(&self) -> Option<BlockHeight>;
+
+    async fn save(&self, height: BlockHeight) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+#[async_trait]
+impl<T> SaveLocation for T
+where
+    for<'a> &'a T: Into<PathBuf>,
+    T: Send + Sync,
+{
+    async fn load(&self) -> Option<BlockHeight> {
+        let path = self.into();
+        if !tokio::fs::try_exists(&path)
+            .await
+            .expect("Failed to check if save file exists")
+        {
+            return None;
+        }
+        let contents = tokio::fs::read_to_string(&path)
+            .await
+            .expect("Failed to read save file");
+        Some(
+            contents
+                .trim()
+                .replace([',', ' ', '.'], "")
+                .parse()
+                .expect("Failed to parse save file contents"),
+        )
+    }
+
+    async fn save(&self, height: BlockHeight) -> Result<(), Box<dyn std::error::Error>> {
+        tokio::fs::write(self.into(), height.to_string()).await?;
+        Ok(())
     }
 }
 
@@ -403,11 +433,12 @@ impl PostProcessor for AutoContinue {
         _options: BlockProcessingOptions,
         stopping: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // This is not actually needed, since AutoContinue is an infinite stream, but just in case
+        // This check is not actually needed, since AutoContinue is an infinite stream, but just in case
         // someone decides to use this as a postprocessor with a finite stream, it won't save postfetch
         // blocks
         if !stopping {
-            Ok(tokio::fs::write(&self.save_file, block.block.header.height.to_string()).await?)
+            // +1 because processing will start from the next block inclusive
+            self.save_location.save(block.block.header.height + 1).await
         } else {
             Ok(())
         }
@@ -425,7 +456,8 @@ pub struct BlockProcessingOptions {
     /// longer insert new transactions into the indexer state, but will still check if new receipts belong to
     /// a transaction that was saved while this flag was `true`.
     pub preprocess_insert_new: bool,
-    /// If true, the indexer will handle this block. If false, the indexer will only use this block
-    /// to preprocess transactions.
+    /// If true, the indexer will handle this block (methods `process_block`, `process_transaction`, `process_receipt`)
     pub handle_by_indexer: bool,
+    /// If true, the indexer will handle preprocessed transactions that completed this block (method `on_transaction`)
+    pub handle_preprocessed_transactions_by_indexer: bool,
 }

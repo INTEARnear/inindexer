@@ -77,7 +77,7 @@ impl IndexerState {
 
     pub(crate) async fn process_block<I: Indexer>(
         &mut self,
-        indexer: &I,
+        indexer: &mut I,
         message: &StreamerMessage,
         options: &BlockProcessingOptions,
     ) -> Result<(), I::Error> {
@@ -159,7 +159,7 @@ impl IndexerState {
                                 CompletedTransaction::try_from(&*incomplete_transaction)
                             {
                                 self.pending_transactions.remove(&tx_id);
-                                if options.handle_by_indexer {
+                                if options.handle_preprocessed_transactions_by_indexer {
                                     indexer.on_transaction(&completed_transaction).await?;
                                 }
                             }

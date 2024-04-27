@@ -17,7 +17,10 @@ struct WatcherIndexer {
 impl Indexer for WatcherIndexer {
     type Error = String;
 
-    async fn on_transaction(&self, transaction: &CompletedTransaction) -> Result<(), Self::Error> {
+    async fn on_transaction(
+        &mut self,
+        transaction: &CompletedTransaction,
+    ) -> Result<(), Self::Error> {
         // Note: this is a simple example, which doesn't handle DELEGATE actions
         if transaction.transaction.transaction.signer_id == self.tracked_account {
             log::info!(
@@ -37,12 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_module_level("inindexer::performance", log::LevelFilter::Debug)
         .init()?;
 
-    let indexer = WatcherIndexer {
+    let mut indexer = WatcherIndexer {
         tracked_account: "slimedragon.near".parse()?,
     };
 
     run_indexer(
-        indexer,
+        &mut indexer,
         LakeStreamer::mainnet(),
         IndexerOptions {
             range: BlockIterator::iterator(112_037_807..=112_037_810),

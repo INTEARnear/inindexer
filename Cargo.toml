@@ -19,6 +19,7 @@ dashmap = "5.5.3"
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
 simple_logger = "4.3.3"
+temp-file = "0.1.8"
 
 [features]
 default = []
