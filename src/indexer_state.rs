@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 use std::{collections::HashMap, time::Duration};
 
+use dashmap::DashMap;
 use near_indexer_primitives::types::BlockHeightDelta;
 use near_indexer_primitives::{
     CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
@@ -13,8 +14,8 @@ const PERFORMANCE_REPORT_EVERY_BLOCKS: BlockHeightDelta = 5000;
 
 #[derive(Debug)]
 pub(crate) struct IndexerState {
-    pending_transactions: HashMap<CryptoHash, IncompleteTransaction>,
-    receipt_id_to_transaction: HashMap<CryptoHash, CryptoHash>,
+    pending_transactions: DashMap<CryptoHash, IncompleteTransaction>,
+    receipt_id_to_transaction: DashMap<CryptoHash, CryptoHash>,
     blocks_received: BlockHeightDelta,
     time_spent: Duration,
 }
@@ -51,8 +52,8 @@ impl TryFrom<&IncompleteTransaction> for CompletedTransaction {
 impl IndexerState {
     pub fn new() -> Self {
         Self {
-            pending_transactions: HashMap::new(),
-            receipt_id_to_transaction: HashMap::new(),
+            pending_transactions: DashMap::new(),
+            receipt_id_to_transaction: DashMap::new(),
             blocks_received: 0,
             time_spent: Duration::ZERO,
         }
@@ -133,12 +134,12 @@ impl IndexerState {
 
         for shard in message.shards.iter() {
             for receipt in shard.receipt_execution_outcomes.iter() {
-                if let Some(tx_id) = self
+                if let Some((tx_id, _)) = self
                     .receipt_id_to_transaction
                     .remove(&receipt.receipt.receipt_id)
                 {
                     if options.preprocess {
-                        if let Some(incomplete_transaction) =
+                        if let Some(mut incomplete_transaction) =
                             self.pending_transactions.get_mut(&tx_id)
                         {
                             incomplete_transaction
