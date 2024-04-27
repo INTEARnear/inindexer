@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    fastnear_data_server::FastNearDataServerProvider, run_indexer, CompletedTransaction, Indexer,
+    fastnear_data_server::FastNearDataServerProvider, run_indexer, BlockIterator,
+    CompletedTransaction, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::types::AccountId;
 
@@ -18,7 +19,7 @@ impl Indexer for WatcherIndexer {
         // Note: this is a simple example, which doesn't handle DELEGATE actions
         if transaction.transaction.transaction.signer_id == self.tracked_account {
             log::info!(
-                "Found transaction: https://pikespeak.ai/transaction-viewer/{:?}",
+                "Found transaction: https://pikespeak.ai/transaction-viewer/{}",
                 transaction.transaction.transaction.hash
             );
         }
@@ -40,8 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_indexer(
         indexer,
         FastNearDataServerProvider::mainnet(),
-        112_037_807..112_037_811,
-        true,
+        IndexerOptions {
+            range: BlockIterator::custom(112_037_807..=112_037_810),
+            ..Default::default()
+        },
     )
     .await?;
 

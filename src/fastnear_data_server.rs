@@ -8,11 +8,22 @@ use crate::message_provider::MessageProvider;
 
 pub struct FastNearDataServerProvider {
     base_url: String,
+    client: reqwest::Client,
 }
 
 impl FastNearDataServerProvider {
     pub fn with_base_url(base_url: String) -> Self {
-        Self { base_url }
+        Self::with_base_url_and_client(
+            base_url,
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap(),
+        )
+    }
+
+    pub fn with_base_url_and_client(base_url: String, client: reqwest::Client) -> Self {
+        Self { base_url, client }
     }
 
     pub fn mainnet() -> Self {
@@ -32,10 +43,8 @@ impl MessageProvider for FastNearDataServerProvider {
         &self,
         block_height: BlockHeight,
     ) -> Result<Option<StreamerMessage>, Self::Error> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
-        let response = client
+        let response = self
+            .client
             .get(&format!("{}/v0/block/{block_height}", self.base_url))
             .send()
             .await?;

@@ -1,7 +1,12 @@
-//! This example demonstrates how to watch slimedragon.near's transactions
+//! This example demonstrates how to watch slimedragon.near's transactions.
+//!
+//! Before running this example, make sure you have the environment set up with AWS credentials:
+//! https://docs.near.org/build/data-infrastructure/lake-framework/near-lake-state-changes-indexer
 
 use async_trait::async_trait;
-use inindexer::{lake::LakeStreamer, run_indexer, CompletedTransaction, Indexer};
+use inindexer::{
+    lake::LakeStreamer, run_indexer, BlockIterator, CompletedTransaction, Indexer, IndexerOptions,
+};
 use near_indexer_primitives::types::AccountId;
 
 struct WatcherIndexer {
@@ -16,7 +21,7 @@ impl Indexer for WatcherIndexer {
         // Note: this is a simple example, which doesn't handle DELEGATE actions
         if transaction.transaction.transaction.signer_id == self.tracked_account {
             log::info!(
-                "Found transaction: https://pikespeak.ai/transaction-viewer/{:?}",
+                "Found transaction: https://pikespeak.ai/transaction-viewer/{}",
                 transaction.transaction.transaction.hash
             );
         }
@@ -39,8 +44,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_indexer(
         indexer,
         LakeStreamer::mainnet(),
-        112_037_807..112_037_811,
-        true,
+        IndexerOptions {
+            range: BlockIterator::custom(112_037_807..=112_037_810),
+            ..Default::default()
+        },
     )
     .await?;
 

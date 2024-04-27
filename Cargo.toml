@@ -12,6 +12,8 @@ serde_json = "1.0.115"
 tokio-stream = "0.1.15"
 tokio = "1.37.0"
 reqwest = { version = "0.12.4", optional = true }
+serde = { version = "1.0.198", features = ["derive"] }
+semver = "1.0.22"
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
@@ -32,3 +34,8 @@ required-features = [ "fastnear-data-server" ]
 name = "watch-the-slime-lake"
 path = "examples/watch_the_slime_lake.rs"
 required-features = [ "lake" ]
+
+[[example]]
+name = "ft-transfers"
+path = "examples/ft_transfers.rs"
+required-features = [ "fastnear-data-server" ]

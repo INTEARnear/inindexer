@@ -77,7 +77,7 @@ impl MessageStreamer for LakeStreamer {
                         .map_err(|err| LakeError::SendError(err))?;
                 }
             }
-            log::info!("No more blocks to process.");
+            log::info!("Block range ended.");
             drop(streamer);
             join_handle
                 .await

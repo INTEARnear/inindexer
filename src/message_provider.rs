@@ -62,30 +62,30 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
     > {
         let (tx, rx) = tokio::sync::mpsc::channel(self.buffer_size);
         let join_handle = tokio::spawn(async move {
-            while let Some(next_block_height) = range.next() {
+            'outer: while let Some(next_block_height) = range.next() {
                 let mut retries = 0;
                 loop {
                     retries += 1;
                     match self.provider.get_message(next_block_height).await {
                         Ok(Some(block)) => {
-                            tx.send(block)
-                                .await
-                                .map_err(MessageStreamerError::ChannelSendError)?;
+                            if tx.send(block).await.is_err() {
+                                break 'outer;
+                            }
                             break;
                         }
                         Ok(None) => {
-                            log::info!("No block found at height {next_block_height}. Skipping this block.");
+                            log::info!(target: "inindexer::message_provider::detect_forks", "No block found at height {next_block_height}. Skipping this block.");
                             break;
                         }
                         Err(err) => {
-                            log::error!("Failed to fetch block {next_block_height} (attempt {retries}): {err}");
+                            log::error!(target: "inindexer::message_provider::fetch_failed", "Failed to fetch block {next_block_height} (attempt {retries}): {err}");
                             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         }
                     }
                 }
             }
 
-            log::info!("No more blocks to process.");
+            log::info!("Block range ended.");
             Ok(())
         });
         Ok((join_handle, rx))
