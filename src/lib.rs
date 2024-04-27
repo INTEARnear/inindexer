@@ -48,6 +48,7 @@ use near_indexer_primitives::{
     views::ExecutionStatusView,
     IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
+use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 #[async_trait]
@@ -96,7 +97,7 @@ pub trait Indexer: Send + Sync + 'static {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CompletedTransaction {
     pub transaction: IndexerTransactionWithOutcome,
     pub receipts: Vec<IndexerExecutionOutcomeWithReceipt>,

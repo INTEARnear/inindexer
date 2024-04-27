@@ -273,12 +273,12 @@ async fn preprocessing_should_supply_completed_transaction() {
             &mut self,
             transaction: &CompletedTransaction,
         ) -> Result<(), Self::Error> {
-            println!("{:?}", transaction.transaction.transaction.hash);
             if transaction.transaction.transaction.hash
                 == "Dvx5xxjrMfKXRUuRBmTizvQf7qA3U2w5Dq7peCFL41tT"
                     .parse()
                     .unwrap()
             {
+                assert_eq!(transaction.receipts.len(), 10);
                 self.found = true;
             }
             Ok(())
