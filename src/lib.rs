@@ -196,6 +196,8 @@ pub async fn run_indexer<
         );
     }
 
+    indexer_state.on_start(&indexer);
+
     while let Some(message) = streamer.recv().await {
         let is_stopping = is_stopping.load(Ordering::Relaxed);
         let processing_options = BlockProcessingOptions {
@@ -242,8 +244,9 @@ pub async fn run_indexer<
             }
         }
     }
-    drop(streamer);
 
+    drop(streamer);
+    indexer_state.on_end(&indexer);
     handle
         .await
         .map_err(InIndexerError::Join)?

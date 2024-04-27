@@ -1,16 +1,22 @@
 use std::fmt::{Debug, Display};
 use std::{collections::HashMap, time::Duration};
 
+use near_indexer_primitives::types::BlockHeightDelta;
 use near_indexer_primitives::{
     CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
 
 use crate::{BlockProcessingOptions, CompletedTransaction, Indexer};
 
+const BLOCK_PROCESSING_WARNING_THRESHOLD: Duration = Duration::from_millis(300);
+const PERFORMANCE_REPORT_EVERY_BLOCKS: BlockHeightDelta = 5000;
+
 #[derive(Debug)]
 pub(crate) struct IndexerState {
     pending_transactions: HashMap<CryptoHash, IncompleteTransaction>,
     receipt_id_to_transaction: HashMap<CryptoHash, CryptoHash>,
+    blocks_received: BlockHeightDelta,
+    time_spent: Duration,
 }
 
 #[derive(Debug)]
@@ -47,7 +53,25 @@ impl IndexerState {
         Self {
             pending_transactions: HashMap::new(),
             receipt_id_to_transaction: HashMap::new(),
+            blocks_received: 0,
+            time_spent: Duration::ZERO,
         }
+    }
+
+    pub fn on_start<I: Indexer>(&mut self, _indexer: &I) {}
+
+    pub fn on_end<I: Indexer>(&mut self, _indexer: &I) {
+        self.report_performance();
+    }
+
+    pub fn report_performance(&self) {
+        log::info!(
+            target: "inindexer::performance",
+            "Processing {} blocks took {:#?} (excluding download), average time per block: {:#?}",
+            self.blocks_received,
+            self.time_spent,
+            self.time_spent / self.blocks_received as u32
+        );
     }
 
     pub(crate) async fn process_block<I: Indexer>(
@@ -56,7 +80,10 @@ impl IndexerState {
         message: &StreamerMessage,
         options: &BlockProcessingOptions,
     ) -> Result<(), I::Error> {
-        const BLOCK_PROCESSING_WARNING_THRESHOLD: Duration = Duration::from_millis(300);
+        self.blocks_received += 1;
+        if self.blocks_received % PERFORMANCE_REPORT_EVERY_BLOCKS == 0 {
+            self.report_performance();
+        }
 
         let started = std::time::Instant::now();
 
@@ -146,13 +173,13 @@ impl IndexerState {
         }
 
         let elapsed = started.elapsed();
+        self.time_spent += elapsed;
         log::debug!(target: "inindexer::performance", "Processing block {height} took {elapsed:#?}",
             height = message.block.header.height);
         if elapsed > BLOCK_PROCESSING_WARNING_THRESHOLD {
             log::warn!(target: "inindexer::performance", "Processing block {height} took {elapsed:#?}",
                 height = message.block.header.height);
         }
-
         Ok(())
     }
 }
