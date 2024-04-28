@@ -1,5 +1,5 @@
 //! # InIndexer
-//! 
+//!
 //! InIndexer is a NEAR indexer framework.
 //!
 //! ## Features

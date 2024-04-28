@@ -7,8 +7,8 @@ use std::{collections::HashMap, ops::Range, path::PathBuf};
 use crate::lake::LakeStreamer;
 use crate::{
     fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    AutoContinue, BlockIterator, CompleteTransaction, IndexerOptions,
-    PreprocessTransactionsSettings, message_provider::ParallelProviderStreamer,
+    message_provider::ParallelProviderStreamer, AutoContinue, BlockIterator, CompleteTransaction,
+    IndexerOptions, PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::{
