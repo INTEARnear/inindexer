@@ -1,7 +1,8 @@
 use std::fmt::Display;
-use std::{ops::Deref, str::FromStr};
+use std::ops::Deref;
 
 use near_indexer_primitives::{
+    near_primitives::serialize::dec_format,
     types::{AccountId, Balance, BlockHeight},
     views::ExecutionStatusView,
     IndexerExecutionOutcomeWithReceipt,
@@ -72,51 +73,6 @@ fn test_deserialize_nep297_log() {
     assert_eq!(log_data.data[0].memo, None);
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(transparent)]
-pub struct StringifiedU128(String);
-
-impl StringifiedU128 {
-    pub fn deserialize_balance<'de, D>(deserializer: D) -> Result<Balance, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let stringified = StringifiedU128::deserialize(deserializer)?;
-        stringified.0.parse().map_err(serde::de::Error::custom)
-    }
-}
-
-impl ToString for StringifiedU128 {
-    fn to_string(&self) -> String {
-        self.0.clone()
-    }
-}
-
-pub type StringifiedBalance = StringifiedU128;
-
-impl TryFrom<&StringifiedBalance> for Balance {
-    type Error = <Balance as FromStr>::Err;
-
-    fn try_from(value: &StringifiedBalance) -> Result<Self, Self::Error> {
-        value.0.parse()
-    }
-}
-
-impl From<Balance> for StringifiedBalance {
-    fn from(value: Balance) -> Self {
-        Self(value.to_string())
-    }
-}
-
-#[test]
-fn test_stringified_balance() {
-    let balance = 250_000_000_000_000_000_000_000;
-    let stringified_balance = StringifiedBalance::from(balance);
-    assert_eq!(stringified_balance.0, "250000000000000000000000");
-    let balance = Balance::try_from(&stringified_balance).unwrap();
-    assert_eq!(balance, 250_000_000_000_000_000_000_000);
-}
-
 pub const NEP141_EVENT_STANDARD_STRING: &str = "nep141";
 pub const NEP171_EVENT_STANDARD_STRING: &str = "nep171";
 
@@ -139,7 +95,7 @@ pub struct FtMintEvent {
     /// The account that minted the tokens
     pub owner_id: AccountId,
     /// The number of tokens minted
-    #[serde(deserialize_with = "StringifiedBalance::deserialize_balance")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
     /// Optional message
     pub memo: Option<String>,
@@ -164,7 +120,7 @@ pub struct FtBurnEvent {
     /// Owner of tokens to burn
     pub owner_id: AccountId,
     /// The number of tokens to burn
-    #[serde(deserialize_with = "StringifiedBalance::deserialize_balance")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
     /// Optional message
     pub memo: Option<String>,
@@ -193,7 +149,7 @@ pub struct FtTransferEvent {
     /// The account ID of the new owner
     pub new_owner_id: AccountId,
     /// The number of tokens to transfer
-    #[serde(deserialize_with = "StringifiedBalance::deserialize_balance")]
+    #[serde(with = "dec_format")]
     pub amount: Balance,
     /// Optional message
     pub memo: Option<String>,
