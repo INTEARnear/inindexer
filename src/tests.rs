@@ -7,7 +7,7 @@ use std::{collections::HashMap, ops::Range, path::PathBuf};
 use crate::lake::LakeStreamer;
 use crate::{
     fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    AutoContinue, BlockIterator, CompletedTransaction, IndexerOptions,
+    AutoContinue, BlockIterator, CompleteTransaction, IndexerOptions,
     PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
@@ -232,7 +232,7 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
 
         async fn on_transaction(
             &mut self,
-            transaction: &CompletedTransaction,
+            transaction: &CompleteTransaction,
             _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             let block_height = self
@@ -276,7 +276,7 @@ async fn preprocessing_should_supply_completed_transaction() {
 
         async fn on_transaction(
             &mut self,
-            transaction: &CompletedTransaction,
+            transaction: &CompleteTransaction,
             _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             if transaction.transaction.transaction.hash

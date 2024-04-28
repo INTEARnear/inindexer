@@ -93,7 +93,7 @@ pub trait Indexer: Send + Sync + 'static {
 
     async fn on_transaction(
         &mut self,
-        _transaction: &CompletedTransaction,
+        _transaction: &CompleteTransaction,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
@@ -101,12 +101,12 @@ pub trait Indexer: Send + Sync + 'static {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CompletedTransaction {
+pub struct CompleteTransaction {
     pub transaction: IndexerTransactionWithOutcome,
     pub receipts: Vec<TransactionReceipt>,
 }
 
-impl CompletedTransaction {
+impl CompleteTransaction {
     pub fn all_receipts_successful(&self) -> bool {
         self.receipts.iter().all(|receipt| {
             matches!(

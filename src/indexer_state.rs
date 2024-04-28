@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::Duration};
 use near_indexer_primitives::types::BlockHeightDelta;
 use near_indexer_primitives::{CryptoHash, IndexerTransactionWithOutcome, StreamerMessage};
 
-use crate::{BlockProcessingOptions, CompletedTransaction, Indexer, TransactionReceipt};
+use crate::{BlockProcessingOptions, CompleteTransaction, Indexer, TransactionReceipt};
 
 const BLOCK_PROCESSING_WARNING_THRESHOLD: Duration = Duration::from_millis(300);
 const PERFORMANCE_REPORT_EVERY_BLOCKS: BlockHeightDelta = 5000;
@@ -23,7 +23,7 @@ struct IncompleteTransaction {
     receipts: HashMap<CryptoHash, Option<TransactionReceipt>>,
 }
 
-impl TryFrom<&IncompleteTransaction> for CompletedTransaction {
+impl TryFrom<&IncompleteTransaction> for CompleteTransaction {
     type Error = &'static str;
 
     fn try_from(value: &IncompleteTransaction) -> Result<Self, Self::Error> {
@@ -151,13 +151,13 @@ impl IndexerState {
                                     .insert(*new_receipt_id, None);
                             }
 
-                            if let Ok(completed_transaction) =
-                                CompletedTransaction::try_from(&*incomplete_transaction)
+                            if let Ok(complete_transaction) =
+                                CompleteTransaction::try_from(&*incomplete_transaction)
                             {
                                 self.pending_transactions.remove(&tx_id);
                                 if options.handle_preprocessed_transactions_by_indexer {
                                     indexer
-                                        .on_transaction(&completed_transaction, message)
+                                        .on_transaction(&complete_transaction, message)
                                         .await?;
                                 }
                             }
