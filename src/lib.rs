@@ -1,5 +1,6 @@
 //! # InIndexer
-//! InIndexer is a library that simplifies building near indexers.
+//! 
+//! InIndexer is a NEAR indexer framework.
 //!
 //! ## Features
 //!
