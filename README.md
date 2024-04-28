@@ -1,4 +1,4 @@
-![crates-io](https://img.shields.io/crates/v/inindexer.svg) [![Workflow Status](https://github.com/INTEARnear/inindexer/workflows/main/badge.svg)](https://github.com/INTEARnear/inindexer/actions?query=workflow%3A%22main%22)
+![crates-io](https://img.shields.io/crates/v/inindexer.svg) [![Workflow Status](https://github.com/INTEARnear/inindexer/actions/workflows/rust.yml/badge.svg)](https://github.com/INTEARnear/inindexer/actions?query=workflow%3A%22main%22)
 
 # Indexer
 InIndexer is a library that simplifies building near indexers.
