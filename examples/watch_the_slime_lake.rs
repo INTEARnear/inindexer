@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    lake::LakeStreamer, run_indexer, BlockIterator, CompletedTransaction, Indexer, IndexerOptions,
+    lake::LakeStreamer, run_indexer, BlockIterator, CompleteTransaction, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{types::AccountId, StreamerMessage};
 
@@ -19,7 +19,7 @@ impl Indexer for WatcherIndexer {
 
     async fn on_transaction(
         &mut self,
-        transaction: &CompletedTransaction,
+        transaction: &CompleteTransaction,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         // Note: this is a simple example, which doesn't handle DELEGATE actions

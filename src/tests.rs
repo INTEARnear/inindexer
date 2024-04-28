@@ -8,7 +8,7 @@ use crate::lake::LakeStreamer;
 use crate::{
     fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
     AutoContinue, BlockIterator, CompleteTransaction, IndexerOptions,
-    PreprocessTransactionsSettings,
+    PreprocessTransactionsSettings, message_provider::ParallelProviderStreamer,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::{
@@ -83,6 +83,48 @@ async fn lake_provider() {
     run_indexer(
         &mut indexer,
         LakeStreamer::mainnet(),
+        IndexerOptions {
+            range: BlockIterator::iterator(RANGE),
+            preprocess_transactions: None,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(indexer.blocks_processed, 4)
+}
+
+#[tokio::test]
+async fn parallel_provider_with_correct_order() {
+    const RANGE: Range<BlockHeight> =
+        MAINNET_GENESIS_BLOCK_HEIGHT..(MAINNET_GENESIS_BLOCK_HEIGHT + 10);
+
+    #[derive(Default)]
+    struct TestIndexer {
+        blocks_processed: BlockHeightDelta,
+        previous_block: Option<BlockHeight>,
+    }
+
+    #[async_trait]
+    impl Indexer for TestIndexer {
+        type Error = String;
+
+        async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+            assert!(RANGE.contains(&block.block.header.height));
+            self.blocks_processed += 1;
+            if let Some(previous_block) = self.previous_block {
+                assert!(previous_block < block.block.header.height);
+            }
+            Ok(())
+        }
+    }
+
+    let mut indexer = TestIndexer::default();
+
+    run_indexer(
+        &mut indexer,
+        ParallelProviderStreamer::new(FastNearDataServerProvider::mainnet(), 3),
         IndexerOptions {
             range: BlockIterator::iterator(RANGE),
             preprocess_transactions: None,
