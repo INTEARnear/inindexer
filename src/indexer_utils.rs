@@ -1,6 +1,11 @@
-use std::str::FromStr;
+use std::fmt::Display;
+use std::{ops::Deref, str::FromStr};
 
-use near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
+use near_indexer_primitives::{
+    types::{AccountId, Balance, BlockHeight},
+    views::ExecutionStatusView,
+    IndexerExecutionOutcomeWithReceipt,
+};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -16,32 +21,55 @@ pub struct EventLogData<T> {
     pub data: T,
 }
 
-/// Deserialize log data from JSON log string.
-///
-/// NOTE: In most cases, you should wrap the type in [`EventLogData`], but this function
-/// will also work if the log is not conventional, or is not prefixed with `EVENT_JSON:`.
-///
-/// If you are using NEP-297 logs, and deserialization succeeds, you should still check
-/// [`EventLogData`] standard, event, and version fields to ensure that the log is actually
-/// relevant and is not a similar event that just happens to have the same fields.
-pub fn deserialize_json_log<T: for<'de> Deserialize<'de>>(
-    mut log: &str,
-) -> Result<T, serde_json::Error> {
-    log = log.trim_start_matches("EVENT_JSON:");
-    serde_json::from_str(log)
+impl<T> EventLogData<T> {
+    pub fn parse_semver(&self) -> Result<Version, semver::Error> {
+        Version::parse(&self.version)
+    }
+
+    /// Deserialize NEP-297 log data from JSON log string.
+    ///
+    /// If deserialization succeeds, you should still check [`EventLogData`] standard,
+    /// event, and version fields to ensure that the log is actually relevant and is
+    /// not a similar event that just happens to have the same fields.
+    pub fn deserialize(log: &str) -> Result<EventLogData<T>, Nep297DeserializationError>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        if let Some(log) = log.strip_prefix("EVENT_JSON:") {
+            serde_json::from_str(log).map_err(Nep297DeserializationError::Deserialization)
+        } else {
+            Err(Nep297DeserializationError::NoPrefix)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Nep297DeserializationError {
+    Deserialization(serde_json::Error),
+    NoPrefix,
+}
+
+impl Display for Nep297DeserializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Nep297DeserializationError::Deserialization(e) => {
+                write!(f, "Deserialization error: {}", e)
+            }
+            Nep297DeserializationError::NoPrefix => write!(f, "No 'EVENT_JSON:' prefix"),
+        }
+    }
 }
 
 #[test]
-fn test_deserialize_json_log() {
-    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","amount":"250000000000000000000000"}}"#;
-    let log_data: EventLogData<FtTransferLog> = deserialize_json_log(log).unwrap();
-    assert_eq!(log_data.standard, "nep141");
+fn test_deserialize_nep297_log() {
+    let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_mint","data":[{"owner_id":"slimedragon.near","token_ids":["260"]}]}"#;
+    let log_data: EventLogData<NftMintLog> = EventLogData::deserialize(log).unwrap();
+    assert_eq!(log_data.standard, "nep171");
     assert_eq!(log_data.version, "1.0.0");
-    assert_eq!(log_data.event, "ft_transfer");
-    assert_eq!(log_data.data.old_owner_id, "slimedragon.near");
-    assert_eq!(log_data.data.new_owner_id, "intear.near");
-    assert_eq!(log_data.data.amount, 250_000_000_000_000_000_000_000);
-    assert_eq!(log_data.data.memo, None);
+    assert_eq!(log_data.event, "nft_mint");
+    assert_eq!(log_data.data[0].owner_id, "slimedragon.near");
+    assert_eq!(log_data.data[0].token_ids, vec!["260"]);
+    assert_eq!(log_data.data[0].memo, None);
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -92,10 +120,22 @@ fn test_stringified_balance() {
 pub const NEP141_EVENT_STANDARD_STRING: &str = "nep141";
 pub const NEP171_EVENT_STANDARD_STRING: &str = "nep171";
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct FtMintLog(pub Vec<FtMintEvent>);
+
+impl Deref for FtMintLog {
+    type Target = Vec<FtMintEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture tokens minting
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct FtMintLog {
+pub struct FtMintEvent {
     /// The account that minted the tokens
     pub owner_id: AccountId,
     /// The number of tokens minted
@@ -105,10 +145,22 @@ pub struct FtMintLog {
     pub memo: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct FtBurnLog(pub Vec<FtBurnEvent>);
+
+impl Deref for FtBurnLog {
+    type Target = Vec<FtBurnEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture tokens burning
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct FtBurnLog {
+pub struct FtBurnEvent {
     /// Owner of tokens to burn
     pub owner_id: AccountId,
     /// The number of tokens to burn
@@ -118,12 +170,24 @@ pub struct FtBurnLog {
     pub memo: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct FtTransferLog(pub Vec<FtTransferEvent>);
+
+impl Deref for FtTransferLog {
+    type Target = Vec<FtTransferEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture tokens transfer
 ///
 /// Note that some older tokens (including all `.tkn.near` tokens) don't follow this standard
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-pub struct FtTransferLog {
+pub struct FtTransferEvent {
     /// The account ID of the old owner
     pub old_owner_id: AccountId,
     /// The account ID of the new owner
@@ -165,12 +229,12 @@ impl FtTransferLog {
         let new_owner_id = parts[1]
             .parse()
             .map_err(|e| format!("Failed to parse new owner ID: {}", e))?;
-        Ok(Self {
+        Ok(Self(vec![FtTransferEvent {
             old_owner_id,
             new_owner_id,
             amount,
             memo: None,
-        })
+        }]))
     }
 }
 
@@ -178,15 +242,28 @@ impl FtTransferLog {
 fn test_ft_transfer_log_deserialize_tkn_farm_log() {
     let log = "Transfer 250000000000000000000000 from slimedragon.near to intear.near";
     let transfer_log = FtTransferLog::deserialize_tkn_farm_log(log).unwrap();
-    assert_eq!(transfer_log.old_owner_id, "slimedragon.near");
-    assert_eq!(transfer_log.new_owner_id, "intear.near");
-    assert_eq!(transfer_log.amount, 250_000_000_000_000_000_000_000);
-    assert_eq!(transfer_log.memo, None);
+    assert_eq!(transfer_log.len(), 1);
+    assert_eq!(transfer_log[0].old_owner_id, "slimedragon.near");
+    assert_eq!(transfer_log[0].new_owner_id, "intear.near");
+    assert_eq!(transfer_log[0].amount, 250_000_000_000_000_000_000_000);
+    assert_eq!(transfer_log[0].memo, None);
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct NftMintLog(pub Vec<NftMintEvent>);
+
+impl Deref for NftMintLog {
+    type Target = Vec<NftMintEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 /// An event log to capture token minting
-#[derive(Deserialize, Debug, Clone)]
-pub struct NftMintLog {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct NftMintEvent {
     /// The account that minted the tokens
     pub owner_id: AccountId,
     /// The tokens minted
@@ -195,9 +272,21 @@ pub struct NftMintLog {
     pub memo: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct NftBurnLog(pub Vec<NftBurnEvent>);
+
+impl Deref for NftBurnLog {
+    type Target = Vec<NftBurnEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture token burning
-#[derive(Deserialize, Debug, Clone)]
-pub struct NftBurnLog {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct NftBurnEvent {
     /// Owner of tokens to burn
     pub owner_id: AccountId,
     /// Approved account_id to burn, if applicable
@@ -208,9 +297,21 @@ pub struct NftBurnLog {
     pub memo: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct NftTransferLog(pub Vec<NftTransferEvent>);
+
+impl Deref for NftTransferLog {
+    type Target = Vec<NftTransferEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture token transfer
-#[derive(Deserialize, Debug, Clone)]
-pub struct NftTransferLog {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct NftTransferEvent {
     /// Approved account_id to transfer, if applicable
     pub authorized_id: Option<AccountId>,
     /// The account ID of the old owner
@@ -223,19 +324,25 @@ pub struct NftTransferLog {
     pub memo: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(transparent, deny_unknown_fields)]
+pub struct NftContractMetadataUpdateLog(pub Vec<NftContractMetadataUpdateEvent>);
+
+impl Deref for NftContractMetadataUpdateLog {
+    type Target = Vec<NftContractMetadataUpdateEvent>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// An event log to capture contract metadata updates. Note that the updated contract metadata
 /// is not included in the log, as it could easily exceed the 16KB log size limit. Listeners
 /// can query `nft_metadata` to get the updated contract metadata.
-#[derive(Deserialize, Debug, Clone)]
-pub struct NftContractMetadataUpdateLog {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct NftContractMetadataUpdateEvent {
     /// Optional message
     pub memo: Option<String>,
-}
-
-impl<T> EventLogData<T> {
-    pub fn parse_semver(&self) -> Result<Version, semver::Error> {
-        Version::parse(&self.version)
-    }
 }
 
 impl EventLogData<FtMintLog> {
@@ -252,8 +359,8 @@ impl EventLogData<FtMintLog> {
 
 #[test]
 fn test_ft_mint_log_validate() {
-    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_mint","data":{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}}"#;
-    let log_data: EventLogData<FtMintLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_mint","data":[{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}]}"#;
+    let log_data: EventLogData<FtMintLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -271,8 +378,8 @@ impl EventLogData<FtBurnLog> {
 
 #[test]
 fn test_ft_burn_log_validate() {
-    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_burn","data":{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}}"#;
-    let log_data: EventLogData<FtBurnLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_burn","data":[{"owner_id":"slimedragon.near","amount":"250000000000000000000000"}]}"#;
+    let log_data: EventLogData<FtBurnLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -290,8 +397,8 @@ impl EventLogData<FtTransferLog> {
 
 #[test]
 fn test_ft_transfer_log_validate() {
-    let log = r#"{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","amount":"250000000000000000000000"}}"#;
-    let log_data: EventLogData<FtTransferLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":[{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","amount":"250000000000000000000000"}]}"#;
+    let log_data: EventLogData<FtTransferLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -309,8 +416,8 @@ impl EventLogData<NftMintLog> {
 
 #[test]
 fn test_nft_mint_log_validate() {
-    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_mint","data":{"owner_id":"slimedragon.near","token_ids":["1","2","3"]}}"#;
-    let log_data: EventLogData<NftMintLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_mint","data":[{"owner_id":"slimedragon.near","token_ids":["260"]}]}"#;
+    let log_data: EventLogData<NftMintLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -328,8 +435,8 @@ impl EventLogData<NftBurnLog> {
 
 #[test]
 fn test_nft_burn_log_validate() {
-    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_burn","data":{"owner_id":"slimedragon.near","token_ids":["1","2","3"]}}"#;
-    let log_data: EventLogData<NftBurnLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_burn","data":[{"owner_id":"slimedragon.near","token_ids":["260"]}]}"#;
+    let log_data: EventLogData<NftBurnLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -347,8 +454,8 @@ impl EventLogData<NftTransferLog> {
 
 #[test]
 fn test_nft_transfer_log_validate() {
-    let log = r#"{"standard":"nep171","version":"1.0.0","event":"nft_transfer","data":{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","token_ids":["1","2","3"]}}"#;
-    let log_data: EventLogData<NftTransferLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_transfer","data":[{"old_owner_id":"slimedragon.near","new_owner_id":"intear.near","token_ids":["260"]}]}"#;
+    let log_data: EventLogData<NftTransferLog> = EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
 }
 
@@ -366,8 +473,17 @@ impl EventLogData<NftContractMetadataUpdateLog> {
 
 #[test]
 fn test_nft_contract_metadata_update_log_validate() {
-    let log =
-        r#"{"standard":"nep171","version":"1.0.0","event":"contract_metadata_update","data":{}}"#;
-    let log_data: EventLogData<NftContractMetadataUpdateLog> = deserialize_json_log(log).unwrap();
+    let log = r#"EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"contract_metadata_update","data":[{}]}"#;
+    let log_data: EventLogData<NftContractMetadataUpdateLog> =
+        EventLogData::deserialize(log).unwrap();
     assert!(log_data.validate());
+}
+
+pub fn is_receipt_successful(receipt: &IndexerExecutionOutcomeWithReceipt) -> Option<bool> {
+    match receipt.execution_outcome.outcome.status {
+        ExecutionStatusView::Failure(_) => Some(false),
+        ExecutionStatusView::SuccessValue(_) => Some(true),
+        ExecutionStatusView::SuccessReceiptId(_) => Some(true),
+        ExecutionStatusView::Unknown => None,
+    }
 }

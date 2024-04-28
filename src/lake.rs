@@ -79,13 +79,13 @@ impl MessageStreamer for LakeStreamer {
                 }
                 tx.send(received_block)
                     .await
-                    .map_err(|err| LakeError::SendError(err))?;
+                    .map_err(LakeError::SendError)?;
             }
             log::info!("Block range ended.");
             drop(streamer);
             join_handle
                 .await
-                .map_err(|err| LakeError::JoinError(err))?
+                .map_err(LakeError::JoinError)?
                 .map_err(|err| LakeError::LakeError(err.into()))?;
             Ok(())
         });

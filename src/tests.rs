@@ -1,8 +1,13 @@
+#[cfg(not(feature = "fastnear-data-server"))]
+compile_error!("Use `cargo test --all-features` to run tests. If you want to skip AWS Lake test, run with `cargo test --features fastnear-data-server`");
+
 use std::{collections::HashMap, ops::Range, path::PathBuf};
 
+#[cfg(feature = "lake")]
+use crate::lake::LakeStreamer;
 use crate::{
     fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    lake::LakeStreamer, AutoContinue, BlockIterator, CompletedTransaction, IndexerOptions,
+    AutoContinue, BlockIterator, CompletedTransaction, IndexerOptions,
     PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
@@ -51,6 +56,7 @@ async fn fastnear_data_server_provider() {
     assert_eq!(indexer.blocks_processed, 4)
 }
 
+#[cfg(feature = "lake")]
 #[tokio::test]
 async fn lake_provider() {
     const RANGE: Range<BlockHeight> =
@@ -176,10 +182,8 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
             for shard in block.shards.iter() {
                 if let Some(chunk) = shard.chunk.as_ref() {
                     for transaction in chunk.transactions.iter() {
-                        self.tx_id_to_block_height.insert(
-                            transaction.transaction.hash.clone(),
-                            block.block.header.height,
-                        );
+                        self.tx_id_to_block_height
+                            .insert(transaction.transaction.hash, block.block.header.height);
                         for receipt_id in transaction
                             .outcome
                             .execution_outcome
@@ -188,15 +192,13 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
                             .iter()
                         {
                             self.receipt_id_to_block_height
-                                .insert(receipt_id.clone(), block.block.header.height);
+                                .insert(*receipt_id, block.block.header.height);
                         }
                     }
                 }
                 for receipt in shard.receipt_execution_outcomes.iter() {
-                    self.receipt_id_to_block_height.insert(
-                        receipt.receipt.receipt_id.clone(),
-                        block.block.header.height,
-                    );
+                    self.receipt_id_to_block_height
+                        .insert(receipt.receipt.receipt_id, block.block.header.height);
                 }
             }
             Ok(())
@@ -205,6 +207,7 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
         async fn process_transaction(
             &mut self,
             transaction: &IndexerTransactionWithOutcome,
+            _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             let block_height = self
                 .tx_id_to_block_height
@@ -217,6 +220,7 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
         async fn process_receipt(
             &mut self,
             receipt: &IndexerExecutionOutcomeWithReceipt,
+            _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             let block_height = self
                 .receipt_id_to_block_height
@@ -229,6 +233,7 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
         async fn on_transaction(
             &mut self,
             transaction: &CompletedTransaction,
+            _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             let block_height = self
                 .tx_id_to_block_height
@@ -272,6 +277,7 @@ async fn preprocessing_should_supply_completed_transaction() {
         async fn on_transaction(
             &mut self,
             transaction: &CompletedTransaction,
+            _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             if transaction.transaction.transaction.hash
                 == "Dvx5xxjrMfKXRUuRBmTizvQf7qA3U2w5Dq7peCFL41tT"

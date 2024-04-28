@@ -16,6 +16,11 @@ impl FastNearDataServerProvider {
         Self::with_base_url_and_client(
             base_url,
             reqwest::Client::builder()
+                .user_agent(format!(
+                    "{} {}",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION")
+                ))
                 .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap(),

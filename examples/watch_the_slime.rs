@@ -5,7 +5,7 @@ use inindexer::{
     fastnear_data_server::FastNearDataServerProvider, run_indexer, BlockIterator,
     CompletedTransaction, Indexer, IndexerOptions,
 };
-use near_indexer_primitives::types::AccountId;
+use near_indexer_primitives::{types::AccountId, StreamerMessage};
 
 struct WatcherIndexer {
     tracked_account: AccountId,
@@ -18,6 +18,7 @@ impl Indexer for WatcherIndexer {
     async fn on_transaction(
         &mut self,
         transaction: &CompletedTransaction,
+        _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         // Note: this is a simple example, which doesn't handle DELEGATE actions
         if transaction.transaction.transaction.signer_id == self.tracked_account {

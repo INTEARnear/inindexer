@@ -6,12 +6,10 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use inindexer::{
     fastnear_data_server::FastNearDataServerProvider,
-    indexer_utils::{
-        deserialize_json_log, EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT,
-    },
+    indexer_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
     run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
 };
-use near_indexer_primitives::views::ExecutionStatusView;
+use near_indexer_primitives::{views::ExecutionStatusView, StreamerMessage};
 
 struct FtTransferIndexer;
 
@@ -24,6 +22,7 @@ impl Indexer for FtTransferIndexer {
     async fn process_receipt(
         &mut self,
         receipt: &near_indexer_primitives::IndexerExecutionOutcomeWithReceipt,
+        _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         if let ExecutionStatusView::Failure(_) = receipt.execution_outcome.outcome.status {
             return Ok(());
@@ -35,12 +34,12 @@ impl Indexer for FtTransferIndexer {
         let token_id = &receipt.receipt.receiver_id;
         let mut transfers = Vec::new();
         for log in receipt.execution_outcome.outcome.logs.iter() {
-            if let Ok(transfer_log) = deserialize_json_log::<EventLogData<FtTransferLog>>(log) {
+            if let Ok(transfer_log) = EventLogData::<FtTransferLog>::deserialize(log) {
                 if transfer_log.validate() {
-                    transfers.push(transfer_log.data);
+                    transfers.extend(transfer_log.data.0);
                 }
             } else if let Ok(transfer_log) = FtTransferLog::deserialize_tkn_farm_log(log) {
-                transfers.push(transfer_log);
+                transfers.extend(transfer_log.0);
             }
         }
         for transfer in transfers {

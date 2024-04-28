@@ -41,7 +41,7 @@ use std::{
 
 use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
-use indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT;
+use indexer_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
 pub use near_indexer_primitives;
 use near_indexer_primitives::{
     types::{BlockHeight, BlockHeightDelta},
@@ -78,6 +78,7 @@ pub trait Indexer: Send + Sync + 'static {
     async fn process_transaction(
         &mut self,
         _transaction: &IndexerTransactionWithOutcome,
+        _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -85,6 +86,7 @@ pub trait Indexer: Send + Sync + 'static {
     async fn process_receipt(
         &mut self,
         _receipt: &IndexerExecutionOutcomeWithReceipt,
+        _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -92,25 +94,38 @@ pub trait Indexer: Send + Sync + 'static {
     async fn on_transaction(
         &mut self,
         _transaction: &CompletedTransaction,
+        _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CompletedTransaction {
     pub transaction: IndexerTransactionWithOutcome,
-    pub receipts: Vec<IndexerExecutionOutcomeWithReceipt>,
+    pub receipts: Vec<TransactionReceipt>,
 }
 
 impl CompletedTransaction {
     pub fn all_receipts_successful(&self) -> bool {
         self.receipts.iter().all(|receipt| {
             matches!(
-                receipt.execution_outcome.outcome.status,
+                receipt.receipt.execution_outcome.outcome.status,
                 ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_)
             )
         })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TransactionReceipt {
+    pub receipt: IndexerExecutionOutcomeWithReceipt,
+    pub block_height: BlockHeight,
+}
+
+impl TransactionReceipt {
+    pub fn is_successful(&self, if_unknown: bool) -> bool {
+        is_receipt_successful(&self.receipt).unwrap_or(if_unknown)
     }
 }
 
@@ -209,8 +224,8 @@ pub async fn run_indexer<
         let processing_options = BlockProcessingOptions {
             height: message.block.header.height,
             preprocess: options.preprocess_transactions.is_some(),
-            preprocess_insert_new: !is_stopping,
-            handle_by_indexer: !is_stopping
+            preprocess_new_transactions: !is_stopping,
+            handle_raw_events: !is_stopping
                 && !prefetch_range.contains(&message.block.header.height),
             handle_preprocessed_transactions_by_indexer: !prefetch_range
                 .contains(&message.block.header.height),
@@ -456,9 +471,9 @@ pub struct BlockProcessingOptions {
     /// If [`preprocess`](BlockProcessingOptions::preprocess) is true, but this is false, the indexer will no
     /// longer insert new transactions into the indexer state, but will still check if new receipts belong to
     /// a transaction that was saved while this flag was `true`.
-    pub preprocess_insert_new: bool,
+    pub preprocess_new_transactions: bool,
     /// If true, the indexer will handle this block (methods `process_block`, `process_transaction`, `process_receipt`)
-    pub handle_by_indexer: bool,
+    pub handle_raw_events: bool,
     /// If true, the indexer will handle preprocessed transactions that completed this block (method `on_transaction`)
     pub handle_preprocessed_transactions_by_indexer: bool,
 }

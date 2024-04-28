@@ -52,7 +52,7 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
 
     async fn stream(
         self,
-        mut range: impl Iterator<Item = BlockHeight> + Send + 'static,
+        range: impl Iterator<Item = BlockHeight> + Send + 'static,
     ) -> Result<
         (
             tokio::task::JoinHandle<Result<(), Self::Error>>,
@@ -62,7 +62,7 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
     > {
         let (tx, rx) = tokio::sync::mpsc::channel(self.buffer_size);
         let join_handle = tokio::spawn(async move {
-            'outer: while let Some(next_block_height) = range.next() {
+            'outer: for next_block_height in range {
                 let mut retries = 0;
                 loop {
                     retries += 1;
@@ -74,7 +74,7 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
                             break;
                         }
                         Ok(None) => {
-                            log::info!(target: "inindexer::message_provider::detect_forks", "No block found at height {next_block_height}. Skipping this block.");
+                            log::debug!(target: "inindexer::message_provider::detect_forks", "No block found at height {next_block_height}. Skipping this block.");
                             break;
                         }
                         Err(err) => {

@@ -2,11 +2,9 @@ use std::fmt::{Debug, Display};
 use std::{collections::HashMap, time::Duration};
 
 use near_indexer_primitives::types::BlockHeightDelta;
-use near_indexer_primitives::{
-    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
-};
+use near_indexer_primitives::{CryptoHash, IndexerTransactionWithOutcome, StreamerMessage};
 
-use crate::{BlockProcessingOptions, CompletedTransaction, Indexer};
+use crate::{BlockProcessingOptions, CompletedTransaction, Indexer, TransactionReceipt};
 
 const BLOCK_PROCESSING_WARNING_THRESHOLD: Duration = Duration::from_millis(300);
 const PERFORMANCE_REPORT_EVERY_BLOCKS: BlockHeightDelta = 5000;
@@ -22,7 +20,7 @@ pub(crate) struct IndexerState {
 #[derive(Debug)]
 struct IncompleteTransaction {
     transaction: IndexerTransactionWithOutcome,
-    receipts: HashMap<CryptoHash, Option<IndexerExecutionOutcomeWithReceipt>>,
+    receipts: HashMap<CryptoHash, Option<TransactionReceipt>>,
 }
 
 impl TryFrom<&IncompleteTransaction> for CompletedTransaction {
@@ -32,14 +30,7 @@ impl TryFrom<&IncompleteTransaction> for CompletedTransaction {
         let receipts = value
             .receipts
             .values()
-            .map(|receipt| {
-                receipt.clone().ok_or("Missing receipt").map(|receipt| {
-                    IndexerExecutionOutcomeWithReceipt {
-                        execution_outcome: receipt.execution_outcome,
-                        receipt: receipt.receipt,
-                    }
-                })
-            })
+            .map(|receipt| receipt.clone().ok_or("Missing receipt"))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             transaction: value.transaction.clone(),
@@ -87,7 +78,7 @@ impl IndexerState {
 
         let started = std::time::Instant::now();
 
-        if options.handle_by_indexer {
+        if options.handle_raw_events {
             indexer.process_block(message).await?;
         }
 
@@ -108,25 +99,27 @@ impl IndexerState {
                         self.receipt_id_to_transaction
                             .insert(*receipt_id, transaction.transaction.hash);
                     }
-                    self.pending_transactions.insert(
-                        transaction.transaction.hash,
-                        IncompleteTransaction {
-                            transaction: transaction.clone(),
-                            receipts: HashMap::from_iter(
-                                transaction
-                                    .outcome
-                                    .execution_outcome
-                                    .outcome
-                                    .receipt_ids
-                                    .iter()
-                                    .map(|receipt_id| (*receipt_id, None)),
-                            ),
-                        },
-                    );
+                    if options.preprocess_new_transactions {
+                        self.pending_transactions.insert(
+                            transaction.transaction.hash,
+                            IncompleteTransaction {
+                                transaction: transaction.clone(),
+                                receipts: HashMap::from_iter(
+                                    transaction
+                                        .outcome
+                                        .execution_outcome
+                                        .outcome
+                                        .receipt_ids
+                                        .iter()
+                                        .map(|receipt_id| (*receipt_id, None)),
+                                ),
+                            },
+                        );
+                    }
                 }
 
-                if options.handle_by_indexer {
-                    indexer.process_transaction(transaction).await?;
+                if options.handle_raw_events {
+                    indexer.process_transaction(transaction, message).await?;
                 }
             }
         }
@@ -141,9 +134,13 @@ impl IndexerState {
                         if let Some(incomplete_transaction) =
                             self.pending_transactions.get_mut(&tx_id)
                         {
-                            incomplete_transaction
-                                .receipts
-                                .insert(receipt.receipt.receipt_id, Some(receipt.clone()));
+                            incomplete_transaction.receipts.insert(
+                                receipt.receipt.receipt_id,
+                                Some(TransactionReceipt {
+                                    receipt: receipt.clone(),
+                                    block_height: message.block.header.height,
+                                }),
+                            );
                             for new_receipt_id in
                                 receipt.execution_outcome.outcome.receipt_ids.iter()
                             {
@@ -159,15 +156,17 @@ impl IndexerState {
                             {
                                 self.pending_transactions.remove(&tx_id);
                                 if options.handle_preprocessed_transactions_by_indexer {
-                                    indexer.on_transaction(&completed_transaction).await?;
+                                    indexer
+                                        .on_transaction(&completed_transaction, message)
+                                        .await?;
                                 }
                             }
                         }
                     }
                 }
 
-                if options.handle_by_indexer {
-                    indexer.process_receipt(receipt).await?;
+                if options.handle_raw_events {
+                    indexer.process_receipt(receipt, message).await?;
                 }
             }
         }
