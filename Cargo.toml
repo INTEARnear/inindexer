@@ -2,6 +2,11 @@
 name = "inindexer"
 version = "0.1.0-alpha.1"
 edition = "2021"
+readme = "README.md"
+repository = "https://github.com/INTEARnear/inindexer"
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/inindexer"
+description = "A framework for building NEAR Protocol indexers"
 
 [dependencies]
 async-trait = "0.1.79"
