@@ -22,5 +22,6 @@ InIndexer is a NEAR indexer framework.
 This crate only works with tokio runtime.
 
 If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer)).
+A bigger example featuring Ref Finance and detecting / parsing state changes is coming soon.
 
 License: MIT OR Apache-2.0
