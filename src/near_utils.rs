@@ -1,14 +1,14 @@
 use std::fmt::Display;
 use std::ops::Deref;
 
+pub use near_indexer_primitives::near_primitives::serialize::dec_format;
 use near_indexer_primitives::{
-    near_primitives::serialize::dec_format,
     types::{AccountId, Balance, BlockHeight},
     views::ExecutionStatusView,
     IndexerExecutionOutcomeWithReceipt,
 };
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 pub const MAINNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 9820210;
 pub const TESTNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 100000000;
@@ -445,8 +445,6 @@ pub fn is_receipt_successful(receipt: &IndexerExecutionOutcomeWithReceipt) -> Op
 }
 
 pub mod dec_format_vec {
-    use serde::{de, Deserializer, Serializer};
-
     use super::*;
 
     pub fn serialize<T, S>(value: &[T], serializer: S) -> Result<S::Ok, S::Error>
@@ -523,4 +521,101 @@ fn test_dec_format_vec() {
     );
     let deserialized: TestVec = serde_json::from_str(&serialized).unwrap();
     assert_eq!(deserialized, test_vec);
+}
+
+pub mod dec_format_map {
+    use super::*;
+
+    pub fn serialize<T, K, V, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        for<'a> &'a T: IntoIterator<Item = (&'a K, &'a V)>,
+        K: Serialize,
+        V: dec_format::DecType,
+    {
+        serializer.collect_map(value.into_iter().map(|(k, v)| (k, v.serialize())))
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        U64(u64),
+        String(String),
+    }
+
+    struct Visitor<T, K, V>(
+        std::marker::PhantomData<T>,
+        std::marker::PhantomData<K>,
+        std::marker::PhantomData<V>,
+    );
+
+    impl<'de, T, K, V> de::Visitor<'de> for Visitor<T, K, V>
+    where
+        K: Deserialize<'de>,
+        V: dec_format::DecType,
+        T: FromIterator<(K, V)>,
+    {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a sequence")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut items = Vec::with_capacity(map.size_hint().unwrap_or(0));
+            while let Some((key, value)) = map.next_entry::<K, Value>()? {
+                items.push((
+                    key,
+                    match value {
+                        Value::U64(value) => V::from_u64(value),
+                        Value::String(value) => {
+                            V::try_from_str(&value).map_err(de::Error::custom)?
+                        }
+                    },
+                ));
+            }
+            Ok(items.into_iter().collect())
+        }
+    }
+
+    pub fn deserialize<'de, T, K, V, D>(deserializer: D) -> Result<T, D::Error>
+    where
+        T: FromIterator<(K, V)>,
+        K: Deserialize<'de>,
+        V: dec_format::DecType,
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(Visitor(
+            std::marker::PhantomData,
+            std::marker::PhantomData,
+            std::marker::PhantomData,
+        ))
+    }
+}
+
+#[test]
+fn test_dec_format_map() {
+    use std::collections::BTreeMap;
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    #[serde(transparent)]
+    struct TestMap {
+        #[serde(with = "dec_format_map")]
+        map: BTreeMap<String, Balance>,
+    }
+
+    let mut map = BTreeMap::new();
+    map.insert("one".to_string(), 1_000_000_000_000_000_000_000);
+    map.insert("two".to_string(), 2_000_000_000_000_000_000_000);
+    let test_map = TestMap { map };
+    let serialized = serde_json::to_string(&test_map).unwrap();
+    assert_eq!(
+        serialized,
+        r#"{"one":"1000000000000000000000","two":"2000000000000000000000"}"#
+    );
+    let deserialized: TestMap = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized, test_map);
 }
