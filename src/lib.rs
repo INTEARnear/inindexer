@@ -25,11 +25,11 @@ pub mod fastnear_data_server;
 mod indexer_state;
 #[cfg(test)]
 mod indexer_tests;
-pub mod indexer_utils;
 #[cfg(feature = "lake")]
 pub mod lake;
 #[cfg(feature = "message-provider")]
 pub mod message_provider;
+pub mod near_utils;
 
 use std::{
     fmt::{Debug, Display},
@@ -43,13 +43,13 @@ use std::{
 
 use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
-use indexer_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
 pub use near_indexer_primitives;
 use near_indexer_primitives::{
     types::{BlockHeight, BlockHeightDelta},
     views::ExecutionStatusView,
     IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
+use near_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 

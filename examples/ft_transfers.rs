@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use inindexer::{
     fastnear_data_server::FastNearDataServerProvider,
-    indexer_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
+    near_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
     run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{views::ExecutionStatusView, StreamerMessage};

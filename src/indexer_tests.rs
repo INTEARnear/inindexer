@@ -6,8 +6,8 @@ use std::{collections::HashMap, ops::Range, path::PathBuf};
 #[cfg(feature = "lake")]
 use crate::lake::LakeStreamer;
 use crate::{
-    fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    message_provider::ParallelProviderStreamer, AutoContinue, AutoContinueEnd, BlockIterator,
+    fastnear_data_server::FastNearDataServerProvider, message_provider::ParallelProviderStreamer,
+    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT, AutoContinue, AutoContinueEnd, BlockIterator,
     CompleteTransaction, IndexerOptions, PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
