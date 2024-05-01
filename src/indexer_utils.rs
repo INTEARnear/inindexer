@@ -443,3 +443,81 @@ pub fn is_receipt_successful(receipt: &IndexerExecutionOutcomeWithReceipt) -> Op
         ExecutionStatusView::Unknown => None,
     }
 }
+
+pub mod dec_format_vec {
+    use serde::{de, Deserializer, Serializer};
+
+    use super::*;
+
+    pub fn serialize<T, S>(value: &[T], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: dec_format::DecType,
+    {
+        serializer.collect_seq(value.iter().map(|item| item.serialize()))
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        U64(u64),
+        String(String),
+    }
+
+    struct Visitor<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T> de::Visitor<'de> for Visitor<T>
+    where
+        T: dec_format::DecType,
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a sequence")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::<T>::new();
+            while let Some(item) = seq.next_element::<Option<Value>>()? {
+                vec.push(match item {
+                    Some(Value::U64(value)) => T::from_u64(value),
+                    Some(Value::String(value)) => {
+                        T::try_from_str(&value).map_err(de::Error::custom)?
+                    }
+                    None => T::try_from_unit()
+                        .map_err(|_| de::Error::invalid_type(de::Unexpected::Option, &self))?,
+                });
+            }
+            Ok(vec)
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: dec_format::DecType,
+    {
+        deserializer.deserialize_seq(Visitor(std::marker::PhantomData))
+    }
+}
+
+#[test]
+fn test_dec_format_vec() {
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    #[serde(transparent)]
+    struct TestVec {
+        #[serde(with = "dec_format_vec")]
+        vec: Vec<Balance>,
+    }
+
+    let test_vec = TestVec {
+        vec: vec![1_000_000_000_000_000_000_000, 2_000_000_000_000_000_000_000]
+    };
+    let serialized = serde_json::to_string(&test_vec).unwrap();
+    assert_eq!(serialized, r#"["1000000000000000000000","2000000000000000000000"]"#);
+    let deserialized: TestVec = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized, test_vec);
+}
