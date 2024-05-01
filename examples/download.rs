@@ -103,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
                 ctrl_c_handler: true,
+                end: inindexer::AutoContinueEnd::Infinite,
             })
         }
         (StartBlockHeight::Genesis, EndBlockHeight::BlockHeight(end_block_height)) => {
@@ -116,6 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
                 ctrl_c_handler: true,
+                end: inindexer::AutoContinueEnd::Infinite,
             })
         }
         (

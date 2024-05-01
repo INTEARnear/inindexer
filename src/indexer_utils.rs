@@ -514,10 +514,13 @@ fn test_dec_format_vec() {
     }
 
     let test_vec = TestVec {
-        vec: vec![1_000_000_000_000_000_000_000, 2_000_000_000_000_000_000_000]
+        vec: vec![1_000_000_000_000_000_000_000, 2_000_000_000_000_000_000_000],
     };
     let serialized = serde_json::to_string(&test_vec).unwrap();
-    assert_eq!(serialized, r#"["1000000000000000000000","2000000000000000000000"]"#);
+    assert_eq!(
+        serialized,
+        r#"["1000000000000000000000","2000000000000000000000"]"#
+    );
     let deserialized: TestVec = serde_json::from_str(&serialized).unwrap();
     assert_eq!(deserialized, test_vec);
 }

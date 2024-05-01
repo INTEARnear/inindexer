@@ -23,16 +23,17 @@
 #[cfg(feature = "fastnear-data-server")]
 pub mod fastnear_data_server;
 mod indexer_state;
+#[cfg(test)]
+mod indexer_tests;
 pub mod indexer_utils;
 #[cfg(feature = "lake")]
 pub mod lake;
 #[cfg(feature = "message-provider")]
 pub mod message_provider;
-#[cfg(test)]
-mod tests;
 
 use std::{
     fmt::{Debug, Display},
+    ops::Range,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -144,13 +145,13 @@ pub async fn run_indexer<
         match options.range {
             BlockIterator::Iterator(range) => (range, None, None),
             BlockIterator::AutoContinue(auto_continue) if auto_continue.ctrl_c_handler => (
-                Box::new(auto_continue.get_start_block().await..)
+                Box::new(auto_continue.range().await)
                     as Box<dyn Iterator<Item = BlockHeight> + Send>,
                 Some(mpsc::channel::<()>(1)),
                 Some(Box::new(auto_continue)),
             ),
             BlockIterator::AutoContinue(auto_continue) => (
-                Box::new(auto_continue.get_start_block().await..)
+                Box::new(auto_continue.range().await)
                     as Box<dyn Iterator<Item = BlockHeight> + Send>,
                 None,
                 Some(Box::new(auto_continue)),
@@ -353,9 +354,9 @@ impl Default for IndexerOptions {
     fn default() -> Self {
         Self {
             stop_on_error: false,
-            range: BlockIterator::Iterator(Box::new(std::iter::once_with(|| {
+            range: BlockIterator::iterator(std::iter::once_with(|| {
                 panic!("Range is not set in IndexerOptions")
-            }))),
+            })),
             preprocess_transactions: Some(PreprocessTransactionsSettings::default()),
             genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
         }
@@ -372,6 +373,18 @@ pub struct AutoContinue {
     /// If true, the indexer will gracefully stop on Ctrl+C signal, avoiding double processing of transactions.
     /// Transactions that have started, but not finished processing, will be processed again on the next run.
     pub ctrl_c_handler: bool,
+    /// If set, the indexer will stop processing blocks after this height. If None, the indexer will process
+    /// blocks infinitely.
+    pub end: AutoContinueEnd,
+}
+
+pub enum AutoContinueEnd {
+    /// The indexer will stop processing blocks after this height.
+    Height(BlockHeight),
+    /// The indexer will process this many blocks and then stop.
+    Count(BlockHeightDelta),
+    /// The indexer will process blocks infinitely.
+    Infinite,
 }
 
 impl AutoContinue {
@@ -381,6 +394,16 @@ impl AutoContinue {
             .await
             .unwrap_or(self.start_height_if_does_not_exist)
     }
+
+    pub async fn range(&self) -> Range<BlockHeight> {
+        let start = self.get_start_block().await;
+        let end = match self.end {
+            AutoContinueEnd::Height(height) => height,
+            AutoContinueEnd::Count(count) => start + count,
+            AutoContinueEnd::Infinite => BlockHeight::MAX,
+        };
+        start..end
+    }
 }
 
 impl Default for AutoContinue {
@@ -389,6 +412,7 @@ impl Default for AutoContinue {
             save_location: Box::new(PathBuf::from("last-processed-block.txt")),
             start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
             ctrl_c_handler: true,
+            end: AutoContinueEnd::Infinite,
         }
     }
 }

@@ -74,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 save_location: Box::new(PathBuf::from("example_ft_trasnfers_last_block.txt")),
                 start_height_if_does_not_exist: 114_625_946,
                 ctrl_c_handler: true,
+                end: inindexer::AutoContinueEnd::Infinite,
             }),
             stop_on_error: false,
             preprocess_transactions: None,

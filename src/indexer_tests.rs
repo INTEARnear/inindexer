@@ -7,8 +7,8 @@ use std::{collections::HashMap, ops::Range, path::PathBuf};
 use crate::lake::LakeStreamer;
 use crate::{
     fastnear_data_server::FastNearDataServerProvider, indexer_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    message_provider::ParallelProviderStreamer, AutoContinue, BlockIterator, CompleteTransaction,
-    IndexerOptions, PreprocessTransactionsSettings,
+    message_provider::ParallelProviderStreamer, AutoContinue, AutoContinueEnd, BlockIterator,
+    CompleteTransaction, IndexerOptions, PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::{
@@ -159,45 +159,41 @@ async fn auto_continue() {
     let save_file = temp_file::with_contents(MAINNET_GENESIS_BLOCK_HEIGHT.to_string().as_bytes());
     let save_path = save_file.path();
 
-    let indexer_task = run_indexer(
+    run_indexer(
         &mut indexer,
         FastNearDataServerProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from(save_path)),
+                end: AutoContinueEnd::Count(5),
                 ..Default::default()
             }),
             preprocess_transactions: None,
             ..Default::default()
         },
-    );
-    let timer_task = tokio::time::sleep(std::time::Duration::from_secs(2));
-    tokio::select! {
-        _ = indexer_task => {},
-        _ = timer_task => {},
-    }
+    )
+    .await
+    .unwrap();
 
     assert!(indexer.last_block_height > MAINNET_GENESIS_BLOCK_HEIGHT);
 
     let current_height = indexer.last_block_height;
 
-    let indexer_task = run_indexer(
+    run_indexer(
         &mut indexer,
         FastNearDataServerProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from(save_path)),
+                end: AutoContinueEnd::Count(5),
                 ..Default::default()
             }),
             preprocess_transactions: None,
             ..Default::default()
         },
-    );
-    let timer_task = tokio::time::sleep(std::time::Duration::from_secs(2));
-    tokio::select! {
-        _ = indexer_task => {},
-        _ = timer_task => {},
-    }
+    )
+    .await
+    .unwrap();
 
     assert!(indexer.last_block_height > current_height);
 }
