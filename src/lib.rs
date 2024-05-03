@@ -29,10 +29,11 @@ mod indexer_tests;
 pub mod lake;
 #[cfg(feature = "message-provider")]
 pub mod message_provider;
+pub mod multiindexer;
 pub mod near_utils;
 
 use std::{
-    fmt::{Debug, Display},
+    fmt::Debug,
     ops::Range,
     path::PathBuf,
     sync::{
@@ -71,7 +72,7 @@ pub trait MessageStreamer {
 
 #[async_trait]
 pub trait Indexer: Send + Sync + 'static {
-    type Error: Display + Debug + Send + Sync + 'static;
+    type Error: Debug + Send + Sync + 'static;
 
     async fn process_block(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
         Ok(())
@@ -244,7 +245,7 @@ pub async fn run_indexer<
             Ok(()) => {}
             Err(e) => {
                 log::error!(
-                    "Error processing block {height}: {e}",
+                    "Error processing block {height}: {e:?}",
                     height = message.block.header.height
                 );
                 if options.stop_on_error {
