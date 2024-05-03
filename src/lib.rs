@@ -33,6 +33,7 @@ pub mod multiindexer;
 pub mod near_utils;
 
 use std::{
+    collections::HashMap,
     fmt::Debug,
     ops::Range,
     path::PathBuf,
@@ -48,7 +49,7 @@ pub use near_indexer_primitives;
 use near_indexer_primitives::{
     types::{BlockHeight, BlockHeightDelta},
     views::ExecutionStatusView,
-    IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
+    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
 use near_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,15 @@ pub trait Indexer: Send + Sync + 'static {
     ) -> Result<(), Self::Error> {
         Ok(())
     }
+
+    async fn on_receipt(
+        &mut self,
+        _receipt: &TransactionReceipt,
+        _transaction: &IncompleteTransaction,
+        _block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -116,6 +126,34 @@ impl CompleteTransaction {
                 receipt.receipt.execution_outcome.outcome.status,
                 ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_)
             )
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct IncompleteTransaction {
+    pub transaction: IndexerTransactionWithOutcome,
+    /// Receipts with None are created by a transaction or another receipt, but are not yet available.
+    ///
+    /// This map does not contain all receipts of a transaction, since this on_receipt is called
+    /// before the transaction is fully complete, so there's no way to know how many receipts there will be.
+    ///
+    /// During on_receipt, the receipt you're processing is None in this map.
+    pub receipts: HashMap<CryptoHash, Option<TransactionReceipt>>,
+}
+
+impl TryFrom<&IncompleteTransaction> for CompleteTransaction {
+    type Error = &'static str;
+
+    fn try_from(value: &IncompleteTransaction) -> Result<Self, Self::Error> {
+        let receipts = value
+            .receipts
+            .values()
+            .map(|receipt| receipt.clone().ok_or("Missing receipt"))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            transaction: value.transaction.clone(),
+            receipts,
         })
     }
 }
