@@ -17,7 +17,7 @@ InIndexer is a NEAR indexer framework.
 - Auto-Continue: the indexer will save the last processed block height to the file and continue from it
   on the next run. Includes a Ctrl+C handler for graceful shutdown.
 - Some helper functions and types for working with logs, balances, and other commonly used functionality in
-  `indexer_utils`.
+  `near_utils`.
 
 This crate only works with tokio runtime.
 
