@@ -21,6 +21,6 @@ InIndexer is a NEAR indexer framework.
 
 This crate only works with tokio runtime.
 
-If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer), [potlock-indexer](https://github.com/INTEARnear/potlock-indexer), [trade-indexer](https://github.com/INTEARnear/trade-indexer)).
+If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer), [potlock-indexer](https://github.com/INTEARnear/potlock-indexer), [trade-indexer](https://github.com/INTEARnear/trade-indexer)). By the way, these repositories are libraries, so if you want the same functionality but with a different event handler, you can use them in your code.
 
-License: MIT OR Apache-2.0
+To run multiple indexers at once without making a new request for each indexer, use `MultiIndexer`, with `MapErrorIndexer` if your indexers have different error types.

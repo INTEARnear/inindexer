@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{any::Any, fmt::Debug};
 
 use crate::{CompleteTransaction, Indexer};
 
@@ -12,14 +12,66 @@ use near_indexer_primitives::{
 /// This indexer will call all the indexers in the order they were added.
 /// The only restriction is that the indexers must have the same error type.
 /// You can use [`MapErrorIndexer`] to convert errors to a common type.
+///
+/// # Example
+///
+/// ```rust
+/// # use inindexer::near_indexer_primitives::StreamerMessage;
+/// # use inindexer::Indexer;
+/// # use async_trait::async_trait;
+/// use inindexer::multiindexer::{MultiIndexer, ChainIndexers};
+///
+/// struct MyIndexer;
+/// struct MyOtherIndexer;
+///
+/// #[async_trait]
+/// impl Indexer for MyIndexer {
+///     type Error = String;
+///
+///     async fn process_block(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+/// }
+///
+/// #[async_trait]
+/// impl Indexer for MyOtherIndexer {
+///     type Error = String;
+///
+///     async fn process_block(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+/// }
+///
+/// fn main() {
+///     let indexer1 = MyIndexer;
+///     let indexer2 = MyOtherIndexer;
+///     let multi_indexer = indexer1.chain(indexer2);
+///     let indexer3 = MyIndexer;
+///     let indexer4 = MyOtherIndexer;
+///     let multi_indexer = multi_indexer
+///         .chain(indexer3)
+///         .chain(indexer4);
+///     assert_eq!(multi_indexer.indexers().len(), 4);
+///     // Now multi_indexer is one indexer that will call all the indexers in order
+/// }
 pub struct MultiIndexer<E: Debug + Send + Sync + 'static>(Vec<Box<dyn Indexer<Error = E>>>);
+
+impl<E: Debug + Send + Sync + 'static> MultiIndexer<E> {
+    pub fn indexers(&self) -> &Vec<Box<dyn Indexer<Error = E>>> {
+        &self.0
+    }
+
+    pub fn indexers_mut(&mut self) -> &mut Vec<Box<dyn Indexer<Error = E>>> {
+        &mut self.0
+    }
+}
 
 #[async_trait]
 impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
     type Error = E;
 
     async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
-        for indexer in &mut self.0 {
+        for indexer in self.indexers_mut() {
             indexer.process_block(block).await?;
         }
         Ok(())
@@ -30,7 +82,7 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         transaction: &IndexerTransactionWithOutcome,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
-        for indexer in &mut self.0 {
+        for indexer in self.indexers_mut() {
             indexer.process_transaction(transaction, block).await?;
         }
         Ok(())
@@ -41,7 +93,7 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         receipt: &IndexerExecutionOutcomeWithReceipt,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
-        for indexer in &mut self.0 {
+        for indexer in self.indexers_mut() {
             indexer.process_receipt(receipt, block).await?;
         }
         Ok(())
@@ -52,10 +104,32 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         _transaction: &CompleteTransaction,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
-        for indexer in &mut self.0 {
+        for indexer in self.indexers_mut() {
             indexer.on_transaction(_transaction, _block).await?;
         }
         Ok(())
+    }
+}
+
+pub trait ChainIndexers<E: Debug + Send + Sync + 'static> {
+    fn chain(self, other: impl Indexer<Error = E>) -> MultiIndexer<E>;
+}
+
+impl<E: Debug + Send + Sync + 'static, I: Indexer<Error = E>> ChainIndexers<E> for I {
+    fn chain(self, other: impl Indexer<Error = E>) -> MultiIndexer<E>
+    where
+        Self: Any + Send + Sync + 'static,
+    {
+        let this = Box::new(self) as Box<dyn Any>;
+        if this.is::<MultiIndexer<E>>() {
+            let mut multi = (this as Box<dyn Any>)
+                .downcast::<MultiIndexer<E>>()
+                .unwrap();
+            multi.indexers_mut().push(Box::new(other));
+            *multi
+        } else {
+            MultiIndexer(vec![this.downcast::<I>().unwrap(), Box::new(other)])
+        }
     }
 }
 
@@ -85,9 +159,9 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
 /// struct AnotherError(String);
 ///
 /// fn main() {
-///    let indexer = MyIndexer;
-///    let mapped_indexer = indexer.map_error(|e| AnotherError(e));
-///    // Now mapped_indexer has type Error = AnotherError
+///     let indexer = MyIndexer;
+///     let mapped_indexer = indexer.map_error(|e| AnotherError(e));
+///     // Now mapped_indexer has type Error = AnotherError
 /// }
 pub struct MapErrorIndexer<
     E: Debug + Send + Sync + 'static,
