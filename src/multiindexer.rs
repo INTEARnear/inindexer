@@ -1,6 +1,6 @@
 use std::{any::Any, fmt::Debug};
 
-use crate::{CompleteTransaction, Indexer};
+use crate::{CompleteTransaction, IncompleteTransaction, Indexer, TransactionReceipt};
 
 use async_trait::async_trait;
 use near_indexer_primitives::{
@@ -101,11 +101,23 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
 
     async fn on_transaction(
         &mut self,
-        _transaction: &CompleteTransaction,
-        _block: &StreamerMessage,
+        transaction: &CompleteTransaction,
+        block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         for indexer in self.indexers_mut() {
-            indexer.on_transaction(_transaction, _block).await?;
+            indexer.on_transaction(transaction, block).await?;
+        }
+        Ok(())
+    }
+
+    async fn on_receipt(
+        &mut self,
+        receipt: &TransactionReceipt,
+        tx: &IncompleteTransaction,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        for indexer in self.indexers_mut() {
+            indexer.on_receipt(receipt, tx, block).await?;
         }
         Ok(())
     }
@@ -228,6 +240,18 @@ impl<
     ) -> Result<(), Self::Error> {
         self.indexer
             .on_transaction(transaction, block)
+            .await
+            .map_err(&self.map)
+    }
+
+    async fn on_receipt(
+        &mut self,
+        receipt: &TransactionReceipt,
+        tx: &IncompleteTransaction,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        self.indexer
+            .on_receipt(receipt, tx, block)
             .await
             .map_err(&self.map)
     }
