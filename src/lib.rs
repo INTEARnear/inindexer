@@ -325,9 +325,10 @@ pub struct IndexerOptions {
     /// Blocks range to process. If None, the indexer will process all blocks from the streamer.
     pub range: BlockIterator,
     /// If enabled, the indexer will preprocess transactions and receipts, so you can access them in the
-    /// [`Indexer::on_transaction`] method. If you don't need this, set to false to save some memory. If disabled,
-    /// you can still access transactions and receipts in the [`Indexer::process_transaction`] and
-    /// [`Indexer::process_receipt`] methods, but `on_transaction` will not be called.
+    /// [`Indexer::on_transaction`] and [`Indexer::on_receipt`] methods. If you don't need this, set to
+    /// false to save some memory. If disabled, you can still access transactions and receipts in the
+    /// [`Indexer::process_transaction`] and [`Indexer::process_receipt`] methods, but `on_transaction`
+    /// and `on_receipt` will not be called.
     pub preprocess_transactions: Option<PreprocessTransactionsSettings>,
     /// Genesis block height, used to limit [`PreprocessTransactionsSettings::prefetch_blocks`] so the indexer
     /// doesn't try to query blocks lower than genesis. Default is [`MAINNET_GENESIS_BLOCK_HEIGHT`]
@@ -538,6 +539,7 @@ pub struct BlockProcessingOptions {
     pub preprocess_new_transactions: bool,
     /// If true, the indexer will handle this block (methods `process_block`, `process_transaction`, `process_receipt`)
     pub handle_raw_events: bool,
-    /// If true, the indexer will handle preprocessed transactions that completed this block (method `on_transaction`)
+    /// If true, the indexer will handle preprocessed transactions that completed this block (methods `on_transaction`,
+    /// `on_receipt`)
     pub handle_preprocessed_transactions_by_indexer: bool,
 }
