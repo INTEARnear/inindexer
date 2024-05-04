@@ -51,3 +51,6 @@ required-features = [ "fastnear-data-server" ]
 name = "download"
 path = "examples/download.rs"
 required-features = [ "fastnear-data-server" ]
+
+[package.metadata.docs.rs]
+all-features = true
