@@ -162,6 +162,8 @@ impl TryFrom<&IncompleteTransaction> for CompleteTransaction {
 pub struct TransactionReceipt {
     pub receipt: IndexerExecutionOutcomeWithReceipt,
     pub block_height: BlockHeight,
+    #[serde(with = "near_utils::dec_format")]
+    pub block_timestamp_nanosec: u128,
 }
 
 impl TransactionReceipt {

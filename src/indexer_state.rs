@@ -117,6 +117,8 @@ impl IndexerState {
                             let processed_receipt = TransactionReceipt {
                                 receipt: receipt.clone(),
                                 block_height: message.block.header.height,
+                                block_timestamp_nanosec: message.block.header.timestamp_nanosec
+                                    as u128,
                             };
 
                             if options.handle_preprocessed_transactions_by_indexer {
