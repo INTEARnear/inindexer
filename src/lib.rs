@@ -295,11 +295,13 @@ pub async fn run_indexer<
                 }
             }
         }
-        if let Some(post_processor) = &post_processor {
-            post_processor
-                .after_block(&message, processing_options, is_stopping)
-                .await
-                .map_err(InIndexerError::PostProcessor)?;
+        if !prefetch_range.contains(&message.block.header.height) {
+            if let Some(post_processor) = &post_processor {
+                post_processor
+                    .after_block(&message, processing_options, is_stopping)
+                    .await
+                    .map_err(InIndexerError::PostProcessor)?;
+            }
         }
         if let Some(ctrl_c_channel) = &mut ctrl_c_channel {
             if ctrl_c_channel.1.try_recv().is_ok() {
