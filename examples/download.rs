@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use inindexer::{
-    fastnear_data_server::FastNearDataServerProvider,
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
+    neardata_server::NeardataServerProvider,
     run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_indexer(
         &mut indexer,
-        FastNearDataServerProvider::mainnet(),
+        NeardataServerProvider::mainnet(),
         IndexerOptions {
             range,
             stop_on_error: true,

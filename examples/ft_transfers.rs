@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use inindexer::{
-    fastnear_data_server::FastNearDataServerProvider,
     near_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
+    neardata_server::NeardataServerProvider,
     run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{views::ExecutionStatusView, StreamerMessage};
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_indexer(
         &mut indexer,
-        FastNearDataServerProvider::mainnet(),
+        NeardataServerProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from("example_ft_trasnfers_last_block.txt")),

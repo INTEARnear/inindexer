@@ -6,12 +6,12 @@ use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
 
 use crate::message_provider::MessageProvider;
 
-pub struct FastNearDataServerProvider {
+pub struct NeardataServerProvider {
     base_url: String,
     client: reqwest::Client,
 }
 
-impl FastNearDataServerProvider {
+impl NeardataServerProvider {
     pub fn with_base_url(base_url: String) -> Self {
         Self::with_base_url_and_client(
             base_url,
@@ -48,7 +48,7 @@ impl FastNearDataServerProvider {
 }
 
 #[async_trait]
-impl MessageProvider for FastNearDataServerProvider {
+impl MessageProvider for NeardataServerProvider {
     type Error = FastNearDataServerError;
 
     async fn get_message(

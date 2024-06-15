@@ -20,8 +20,6 @@
 //!
 //! This crate only works with tokio runtime.
 
-#[cfg(feature = "fastnear-data-server")]
-pub mod fastnear_data_server;
 mod indexer_state;
 #[cfg(test)]
 mod indexer_tests;
@@ -31,6 +29,8 @@ pub mod lake;
 pub mod message_provider;
 pub mod multiindexer;
 pub mod near_utils;
+#[cfg(feature = "neardata-server")]
+pub mod neardata_server;
 
 use std::{
     collections::HashMap,
