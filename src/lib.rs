@@ -233,8 +233,7 @@ pub async fn run_indexer<
 
     let range = prefetch_range
         .clone()
-        .chain(first_block_to_process)
-        .chain(range.inspect(move |x| {
+        .chain(first_block_to_process.chain(range).inspect(move |x| {
             current_block.store(*x, Ordering::Relaxed);
         }))
         .chain(postfetch_iter);
