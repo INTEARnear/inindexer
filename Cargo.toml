@@ -11,11 +11,11 @@ description = "A framework for building NEAR Protocol indexers"
 [dependencies]
 async-trait = "0.1.79"
 log = "0.4.21"
-near-lake-framework = { version = "0.7.7", optional = true }
-near-indexer-primitives = "0.20.1"
+near-lake-framework = { version = "=0.7.9", optional = true }
+near-indexer-primitives = "0.23.0"
 serde_json = "1.0.115"
 tokio-stream = "0.1.15"
-tokio = "1.37.0"
+tokio = { version = "1.37.0", features = [ "signal" ] }
 reqwest = { version = "0.12.4", optional = true }
 serde = { version = "1.0.198", features = ["derive"] }
 semver = "1.0.22"
