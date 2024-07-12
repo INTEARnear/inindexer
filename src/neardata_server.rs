@@ -9,6 +9,7 @@ use crate::message_provider::MessageProvider;
 pub struct NeardataServerProvider {
     base_url: String,
     client: reqwest::Client,
+    optimistic: bool,
 }
 
 impl NeardataServerProvider {
@@ -35,7 +36,11 @@ impl NeardataServerProvider {
     }
 
     pub fn with_base_url_and_client(base_url: String, client: reqwest::Client) -> Self {
-        Self { base_url, client }
+        Self {
+            base_url,
+            client,
+            optimistic: false,
+        }
     }
 
     pub fn mainnet() -> Self {
@@ -44,6 +49,11 @@ impl NeardataServerProvider {
 
     pub fn testnet() -> Self {
         Self::with_base_url("https://testnet.neardata.xyz".to_string())
+    }
+
+    pub fn optimistic(mut self) -> Self {
+        self.optimistic = true;
+        self
     }
 }
 
@@ -55,9 +65,14 @@ impl MessageProvider for NeardataServerProvider {
         &self,
         block_height: BlockHeight,
     ) -> Result<Option<StreamerMessage>, Self::Error> {
+        let finality = if self.optimistic {
+            "block_opt"
+        } else {
+            "block"
+        };
         let response = self
             .client
-            .get(&format!("{}/v0/block/{block_height}", self.base_url))
+            .get(&format!("{}/v0/{finality}/{block_height}", self.base_url))
             .send()
             .await?;
         let text = response.text().await?;

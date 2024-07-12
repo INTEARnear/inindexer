@@ -56,6 +56,44 @@ async fn neardata_server_provider() {
     assert_eq!(indexer.blocks_processed, 4)
 }
 
+#[tokio::test]
+async fn neardata_optimistic_provider() {
+    const RANGE: Range<BlockHeight> =
+        MAINNET_GENESIS_BLOCK_HEIGHT..(MAINNET_GENESIS_BLOCK_HEIGHT + 10);
+
+    #[derive(Default)]
+    struct TestIndexer {
+        blocks_processed: BlockHeightDelta,
+    }
+
+    #[async_trait]
+    impl Indexer for TestIndexer {
+        type Error = String;
+
+        async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+            assert!(RANGE.contains(&block.block.header.height));
+            self.blocks_processed += 1;
+            Ok(())
+        }
+    }
+
+    let mut indexer = TestIndexer::default();
+
+    run_indexer(
+        &mut indexer,
+        NeardataServerProvider::mainnet().optimistic(),
+        IndexerOptions {
+            range: BlockIterator::iterator(RANGE),
+            preprocess_transactions: None,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(indexer.blocks_processed, 4) // I guess old optimistic blocks are purged, so idk how to test
+}
+
 #[cfg(feature = "lake")]
 #[tokio::test]
 async fn lake_provider() {
