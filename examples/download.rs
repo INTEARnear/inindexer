@@ -102,7 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             BlockIterator::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
-                ctrl_c_handler: true,
                 end: inindexer::AutoContinueEnd::Infinite,
             })
         }
@@ -116,7 +115,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             BlockIterator::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
-                ctrl_c_handler: true,
                 end: inindexer::AutoContinueEnd::Infinite,
             })
         }
@@ -136,6 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stop_on_error: true,
             preprocess_transactions: None,
             genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
+            ctrl_c_handler: true,
         },
     )
     .await?;

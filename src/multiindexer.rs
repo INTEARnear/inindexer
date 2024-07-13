@@ -121,6 +121,13 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         }
         Ok(())
     }
+
+    async fn finalize(&mut self) -> Result<(), Self::Error> {
+        for indexer in self.indexers_mut() {
+            indexer.finalize().await?;
+        }
+        Ok(())
+    }
 }
 
 pub trait ChainIndexers<E: Debug + Send + Sync + 'static> {

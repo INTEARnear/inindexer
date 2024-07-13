@@ -54,6 +54,7 @@ use near_indexer_primitives::{
 use near_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 #[async_trait]
 pub trait MessageStreamer {
@@ -109,6 +110,10 @@ pub trait Indexer: Send + Sync + 'static {
         _transaction: &IncompleteTransaction,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn finalize(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -182,23 +187,15 @@ pub async fn run_indexer<
 ) -> Result<(), InIndexerError<S::Error>> {
     let mut indexer_state = IndexerState::new();
 
-    let (mut range, mut ctrl_c_channel, post_processor): (_, _, Option<Box<dyn PostProcessor>>) =
-        match options.range {
-            BlockIterator::Iterator(range) => (range, None, None),
-            BlockIterator::AutoContinue(auto_continue) if auto_continue.ctrl_c_handler => (
-                Box::new(auto_continue.range().await)
-                    as Box<dyn Iterator<Item = BlockHeight> + Send>,
-                Some(mpsc::channel::<()>(1)),
-                Some(Box::new(auto_continue)),
-            ),
-            BlockIterator::AutoContinue(auto_continue) => (
-                Box::new(auto_continue.range().await)
-                    as Box<dyn Iterator<Item = BlockHeight> + Send>,
-                None,
-                Some(Box::new(auto_continue)),
-            ),
-            BlockIterator::Custom(range, post_processor) => (range, None, Some(post_processor)),
-        };
+    let cancellation_token = CancellationToken::new();
+    let (mut range, post_processor): (_, Option<Box<dyn PostProcessor>>) = match options.range {
+        BlockIterator::Iterator(range) => (range, None),
+        BlockIterator::AutoContinue(auto_continue) => (
+            Box::new(auto_continue.range().await) as Box<dyn Iterator<Item = BlockHeight> + Send>,
+            Some(Box::new(auto_continue)),
+        ),
+        BlockIterator::Custom(range, post_processor) => (range, Some(post_processor)),
+    };
 
     let start_block_height = if let Some(first) = range.next() {
         first
@@ -238,15 +235,11 @@ pub async fn run_indexer<
         }))
         .chain(postfetch_iter);
 
-    let (handle, mut streamer) = streamer
-        .stream(range)
-        .await
-        .map_err(InIndexerError::Streamer)?;
-    if let Some(ctrl_c_channel) = &mut ctrl_c_channel {
-        let ctrl_c_channel = ctrl_c_channel.0.clone();
+    if options.ctrl_c_handler {
+        let cancellation_token_2 = cancellation_token.clone();
         tokio::spawn(async move {
             tokio::signal::ctrl_c().await.ok();
-            let _ = ctrl_c_channel.send(()).await;
+            cancellation_token_2.cancel();
         });
     }
 
@@ -258,6 +251,11 @@ pub async fn run_indexer<
             start_block_height
         );
     }
+
+    let (handle, mut streamer) = streamer
+        .stream(range)
+        .await
+        .map_err(InIndexerError::Streamer)?;
 
     indexer_state.on_start(indexer);
 
@@ -302,14 +300,12 @@ pub async fn run_indexer<
                     .map_err(InIndexerError::PostProcessor)?;
             }
         }
-        if let Some(ctrl_c_channel) = &mut ctrl_c_channel {
-            if ctrl_c_channel.1.try_recv().is_ok() {
-                log::info!(
-                    "Received Ctrl+C signal, stopping after block {} is fully processed",
-                    message.block.header.height
-                );
-                break;
-            }
+        if cancellation_token.is_cancelled() {
+            log::info!(
+                "Received Ctrl+C signal, stopping after block {} is fully processed",
+                message.block.header.height
+            );
+            break;
         }
     }
 
@@ -336,6 +332,9 @@ pub struct IndexerOptions {
     /// Genesis block height, used to limit [`PreprocessTransactionsSettings::prefetch_blocks`] so the indexer
     /// doesn't try to query blocks lower than genesis. Default is [`MAINNET_GENESIS_BLOCK_HEIGHT`]
     pub genesis_block_height: BlockHeight,
+    /// If true, the indexer will gracefully stop on Ctrl+C signal, avoiding double processing of transactions.
+    /// Transactions that have started, but not finished processing, will be processed again on the next run.
+    pub ctrl_c_handler: bool,
 }
 
 pub enum BlockIterator {
@@ -402,6 +401,7 @@ impl Default for IndexerOptions {
             })),
             preprocess_transactions: Some(PreprocessTransactionsSettings::default()),
             genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
+            ctrl_c_handler: true,
         }
     }
 }
@@ -413,9 +413,6 @@ pub struct AutoContinue {
     /// If the save file does not exist, the indexer will start from this height. Default is the mainnet
     /// genesis block height.
     pub start_height_if_does_not_exist: BlockHeight,
-    /// If true, the indexer will gracefully stop on Ctrl+C signal, avoiding double processing of transactions.
-    /// Transactions that have started, but not finished processing, will be processed again on the next run.
-    pub ctrl_c_handler: bool,
     /// If set, the indexer will stop processing blocks after this height. If None, the indexer will process
     /// blocks infinitely.
     pub end: AutoContinueEnd,
@@ -454,7 +451,6 @@ impl Default for AutoContinue {
         Self {
             save_location: Box::new(PathBuf::from("last-processed-block.txt")),
             start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
-            ctrl_c_handler: true,
             end: AutoContinueEnd::Infinite,
         }
     }

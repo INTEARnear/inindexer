@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "inindexer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -1597,6 +1597,7 @@ dependencies = [
  "temp-file",
  "tokio",
  "tokio-stream",
+ "tokio-util",
 ]
 
 [[package]]
