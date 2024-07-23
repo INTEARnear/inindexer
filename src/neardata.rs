@@ -6,13 +6,13 @@ use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
 
 use crate::message_provider::MessageProvider;
 
-pub struct NeardataServerProvider {
+pub struct NeardataProvider {
     base_url: String,
     client: reqwest::Client,
     optimistic: bool,
 }
 
-impl NeardataServerProvider {
+impl NeardataProvider {
     pub fn with_base_url(base_url: String) -> Self {
         Self::with_base_url_and_client(
             base_url,
@@ -58,8 +58,8 @@ impl NeardataServerProvider {
 }
 
 #[async_trait]
-impl MessageProvider for NeardataServerProvider {
-    type Error = FastNearDataServerError;
+impl MessageProvider for NeardataProvider {
+    type Error = NeardataError;
 
     async fn get_message(
         &self,
@@ -78,7 +78,7 @@ impl MessageProvider for NeardataServerProvider {
         let text = response.text().await?;
         match serde_json::from_str::<Option<StreamerMessage>>(&text) {
             Ok(maybe_block) => Ok(maybe_block),
-            Err(err) => Err(FastNearDataServerError::FailedToParse {
+            Err(err) => Err(NeardataError::FailedToParse {
                 err,
                 response: text,
             }),
@@ -87,7 +87,7 @@ impl MessageProvider for NeardataServerProvider {
 }
 
 #[derive(Debug)]
-pub enum FastNearDataServerError {
+pub enum NeardataError {
     FailedToParse {
         err: serde_json::Error,
         response: String,
@@ -95,22 +95,22 @@ pub enum FastNearDataServerError {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl<E> From<E> for FastNearDataServerError
+impl<E> From<E> for NeardataError
 where
     E: std::error::Error + Send + Sync + 'static,
 {
     fn from(err: E) -> Self {
-        FastNearDataServerError::Other(Box::new(err))
+        NeardataError::Other(Box::new(err))
     }
 }
 
-impl Display for FastNearDataServerError {
+impl Display for NeardataError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FastNearDataServerError::FailedToParse { err, response } => {
+            NeardataError::FailedToParse { err, response } => {
                 write!(f, "Failed to parse response: {err:?}\nResponse: {response}")
             }
-            FastNearDataServerError::Other(err) => write!(f, "{err}"),
+            NeardataError::Other(err) => write!(f, "{err}"),
         }
     }
 }

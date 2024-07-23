@@ -5,14 +5,14 @@
 //!
 //! Also, downloading blocks in batches would be much faster, but inindexer doesn't support this yet.
 //! If you want to download a lot of blocks and speed matters, you can use download method directly
-//! and asynchronously: FastNearDataServerProvider::get_message(BlockHeight)
+//! and asynchronously: NeardataProvider::get_message(BlockHeight)
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use inindexer::{
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
-    neardata_server::NeardataServerProvider,
+    neardata::NeardataProvider,
     run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_indexer(
         &mut indexer,
-        NeardataServerProvider::mainnet(),
+        NeardataProvider::mainnet(),
         IndexerOptions {
             range,
             stop_on_error: true,

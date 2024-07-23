@@ -30,13 +30,13 @@ temp-file = "0.1.8"
 [features]
 default = []
 message-provider = []
-neardata-server = [ "message-provider", "reqwest" ]
+neardata = [ "message-provider", "reqwest" ]
 lake = [ "message-provider", "near-lake-framework" ]
 
 [[example]]
 name = "watch-the-slime"
 path = "examples/watch_the_slime.rs"
-required-features = [ "neardata-server" ]
+required-features = [ "neardata" ]
 
 [[example]]
 name = "watch-the-slime-lake"
@@ -46,12 +46,12 @@ required-features = [ "lake" ]
 [[example]]
 name = "ft-transfers"
 path = "examples/ft_transfers.rs"
-required-features = [ "neardata-server" ]
+required-features = [ "neardata" ]
 
 [[example]]
 name = "download"
 path = "examples/download.rs"
-required-features = [ "neardata-server" ]
+required-features = [ "neardata" ]
 
 [package.metadata.docs.rs]
 all-features = true

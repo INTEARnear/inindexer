@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    neardata_server::NeardataServerProvider, run_indexer, BlockIterator, CompleteTransaction,
-    Indexer, IndexerOptions,
+    neardata::NeardataProvider, run_indexer, BlockIterator, CompleteTransaction, Indexer,
+    IndexerOptions,
 };
 use near_indexer_primitives::{types::AccountId, StreamerMessage};
 
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_indexer(
         &mut indexer,
-        NeardataServerProvider::mainnet(),
+        NeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::iterator(112_037_807..=112_037_810),
             ..Default::default()

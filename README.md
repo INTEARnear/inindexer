@@ -5,7 +5,7 @@ InIndexer is a NEAR indexer framework.
 
 ## Features
 
-- Different sources of near data: [neardata-server](https://github.com/fastnear/neardata-server) (implemented),
+- Different sources of near data: [neardata](https://github.com/fastnear/neardata-server) (implemented),
   [AWS Lake](https://docs.near.org/concepts/advanced/near-lake-framework) (only consecutive ascending ranges
   are supported), local file storage for backfilling (planned), you can add your own sources by implementing
   `MessageStreamer` or `message_provider::MessageProvider` trait.
