@@ -21,7 +21,7 @@ InIndexer is a NEAR indexer framework.
 
 This crate only works with tokio runtime.
 
-If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer), [potlock-indexer](https://github.com/INTEARnear/potlock-indexer), [trade-indexer](https://github.com/INTEARnear/trade-indexer), [contract-indexer](https://github.com/INTEARnear/contract-indexer), [intear-oracle indexer](https://github.com/INTEARnear/oracle/tree/main/crates/indexer)). By the way, some of these repositories are libraries, so if you want the same functionality but with a different event handler, you can use them in your code by specifying them as git dependencies.
+If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer), [potlock-indexer](https://github.com/INTEARnear/potlock-indexer), [trade-indexer](https://github.com/INTEARnear/trade-indexer), [new-token-indexer](https://github.com/INTEARnear/new-token-indexer), [intear-oracle indexer](https://github.com/INTEARnear/oracle/tree/main/crates/indexer)). By the way, some of these repositories are libraries, so if you want the same functionality but with a different event handler, you can use them in your code by specifying them as git dependencies.
 
 To run multiple indexers at once without making a new request for each indexer, use `MultiIndexer`, with `MapErrorIndexer` if your indexers have different error types.
 
