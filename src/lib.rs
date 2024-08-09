@@ -76,10 +76,12 @@ pub trait MessageStreamer {
 pub trait Indexer: Send + Sync + 'static {
     type Error: Debug + Send + Sync + 'static;
 
+    /// Runs for every block.
     async fn process_block(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
         Ok(())
     }
 
+    /// Runs for every transaction when it starts (not when it's complete, see `on_transaction`).
     async fn process_transaction(
         &mut self,
         _transaction: &IndexerTransactionWithOutcome,
@@ -88,6 +90,7 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs for every receipt, when it's executed.
     async fn process_receipt(
         &mut self,
         _receipt: &IndexerExecutionOutcomeWithReceipt,
@@ -96,6 +99,8 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs for every transaction, when it's fully complete and all its receipts are executed.
+    /// Requires preprocessing enabled in `IndexerOptions`.
     async fn on_transaction(
         &mut self,
         _transaction: &CompleteTransaction,
@@ -104,6 +109,8 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs for every receipt, when it's executed. Also contains information about the parent
+    /// transaction and previous receipts. Requires preprocessing enabled in `IndexerOptions`.
     async fn on_receipt(
         &mut self,
         _receipt: &TransactionReceipt,
@@ -113,6 +120,10 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs when the indexer stops (block range ended or Ctrl+C). Useful if you don't save the
+    /// data right away on every receipt, and want to "flush" some of the generated data. This
+    /// helps you make sure the program doesn't exit before all data is saved. When you `.await`
+    /// a `run_indexer` call, it won't return until `finalize` returns.
     async fn finalize(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
