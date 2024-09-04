@@ -18,6 +18,11 @@
 //! - Some helper functions and types for working with logs, balances, and other commonly used functionality in
 //!   [`near_utils`].
 //!
+//! ## Feature flags
+//!
+//! - `neardata`: Neardata data source
+//! - `lake`: NEAR Lake data source
+//!
 //! This crate only works with tokio runtime.
 
 mod indexer_state;
@@ -25,7 +30,6 @@ mod indexer_state;
 mod indexer_tests;
 #[cfg(feature = "lake")]
 pub mod lake;
-#[cfg(feature = "message-provider")]
 pub mod message_provider;
 pub mod multiindexer;
 pub mod near_utils;

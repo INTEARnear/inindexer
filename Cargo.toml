@@ -29,9 +29,8 @@ temp-file = "0.1.8"
 
 [features]
 default = []
-message-provider = []
-neardata = [ "message-provider", "reqwest" ]
-lake = [ "message-provider", "near-lake-framework" ]
+neardata = [ "reqwest" ]
+lake = [ "near-lake-framework" ]
 
 [[example]]
 name = "watch-the-slime"

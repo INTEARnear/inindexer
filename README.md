@@ -19,6 +19,11 @@ InIndexer is a NEAR indexer framework.
 - Some helper functions and types for working with logs, balances, and other commonly used functionality in
   `near_utils`.
 
+## Feature flags
+
+- `neardata`: Neardata data source
+- `lake`: NEAR Lake data source
+
 This crate only works with tokio runtime.
 
 If you want to see some examples, check minimal examples in [examples/](examples/) or real indexers used in Intear infrastructure ([nft-indexer](https://github.com/INTEARnear/nft-indexer), [potlock-indexer](https://github.com/INTEARnear/potlock-indexer), [trade-indexer](https://github.com/INTEARnear/trade-indexer), [new-token-indexer](https://github.com/INTEARnear/new-token-indexer), [intear-oracle indexer](https://github.com/INTEARnear/oracle/tree/main/crates/indexer)). By the way, some of these repositories are libraries, so if you want the same functionality but with a different event handler, you can use them in your code by specifying them as git dependencies.
