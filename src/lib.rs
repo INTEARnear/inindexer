@@ -124,6 +124,12 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Runs for every block, after all on_transaction, on_receipt, and other callbacks are
+    /// called.
+    async fn process_block_end(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     /// Runs when the indexer stops (block range ended or Ctrl+C). Useful if you don't save the
     /// data right away on every receipt, and want to "flush" some of the generated data. This
     /// helps you make sure the program doesn't exit before all data is saved. When you `.await`

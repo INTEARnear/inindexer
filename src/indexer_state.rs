@@ -160,6 +160,8 @@ impl IndexerState {
             }
         }
 
+        indexer.process_block_end(message).await?;
+
         let elapsed = started.elapsed();
         self.time_spent += elapsed;
         log::debug!(target: "inindexer::performance", "Processing block {height} took {elapsed:#?}",
