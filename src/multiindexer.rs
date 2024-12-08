@@ -122,6 +122,13 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         Ok(())
     }
 
+    async fn process_block_end(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+        for indexer in self.indexers_mut() {
+            indexer.process_block_end(block).await?;
+        }
+        Ok(())
+    }
+
     async fn finalize(&mut self) -> Result<(), Self::Error> {
         for indexer in self.indexers_mut() {
             indexer.finalize().await?;
@@ -261,6 +268,17 @@ impl<
             .on_receipt(receipt, tx, block)
             .await
             .map_err(&self.map)
+    }
+
+    async fn process_block_end(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+        self.indexer
+            .process_block_end(block)
+            .await
+            .map_err(&self.map)
+    }
+
+    async fn finalize(&mut self) -> Result<(), Self::Error> {
+        self.indexer.finalize().await.map_err(&self.map)
     }
 }
 
