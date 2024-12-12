@@ -310,3 +310,154 @@ impl<I: Indexer> MapError for I {
         MapErrorIndexer::new(self, map)
     }
 }
+
+/// A parallel multi-indexer that executes all indexers concurrently.
+///
+/// Similar to [`MultiIndexer`], but executes all indexers in parallel using tokio's join.
+/// The indexers must have the same error type.
+pub struct ParallelMultiIndexer<E: Debug + Send + Sync + 'static>(Vec<Box<dyn Indexer<Error = E>>>);
+
+impl<E: Debug + Send + Sync + 'static> ParallelMultiIndexer<E> {
+    pub fn indexers(&self) -> &Vec<Box<dyn Indexer<Error = E>>> {
+        &self.0
+    }
+
+    pub fn indexers_mut(&mut self) -> &mut Vec<Box<dyn Indexer<Error = E>>> {
+        &mut self.0
+    }
+}
+
+#[async_trait]
+impl<E: Debug + Send + Sync + 'static> Indexer for ParallelMultiIndexer<E> {
+    type Error = E;
+
+    async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.process_block(block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn process_transaction(
+        &mut self,
+        transaction: &IndexerTransactionWithOutcome,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.process_transaction(transaction, block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn process_receipt(
+        &mut self,
+        receipt: &IndexerExecutionOutcomeWithReceipt,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.process_receipt(receipt, block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn on_transaction(
+        &mut self,
+        transaction: &CompleteTransaction,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.on_transaction(transaction, block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn on_receipt(
+        &mut self,
+        receipt: &TransactionReceipt,
+        tx: &IncompleteTransaction,
+        block: &StreamerMessage,
+    ) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.on_receipt(receipt, tx, block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn process_block_end(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.process_block_end(block))
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+
+    async fn finalize(&mut self) -> Result<(), Self::Error> {
+        let futures: Vec<_> = self
+            .indexers_mut()
+            .iter_mut()
+            .map(|indexer| indexer.finalize())
+            .collect();
+
+        for result in futures::future::join_all(futures).await {
+            result?;
+        }
+        Ok(())
+    }
+}
+
+pub trait ParallelJoinIndexers<E: Debug + Send + Sync + 'static> {
+    fn parallel_join(self, other: impl Indexer<Error = E>) -> ParallelMultiIndexer<E>;
+}
+
+impl<E: Debug + Send + Sync + 'static, I: Indexer<Error = E>> ParallelJoinIndexers<E> for I {
+    fn parallel_join(self, other: impl Indexer<Error = E>) -> ParallelMultiIndexer<E>
+    where
+        Self: Any + Send + Sync + 'static,
+    {
+        let this = Box::new(self) as Box<dyn Any>;
+        if this.is::<ParallelMultiIndexer<E>>() {
+            let mut multi = (this as Box<dyn Any>)
+                .downcast::<ParallelMultiIndexer<E>>()
+                .unwrap();
+            multi.indexers_mut().push(Box::new(other));
+            *multi
+        } else {
+            ParallelMultiIndexer(vec![this.downcast::<I>().unwrap(), Box::new(other)])
+        }
+    }
+}

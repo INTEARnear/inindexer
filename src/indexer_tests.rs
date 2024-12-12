@@ -1,6 +1,8 @@
 #[cfg(not(feature = "neardata"))]
 compile_error!("Use `cargo test --all-features` to run tests. If you want to skip AWS Lake test, run with `cargo test --features neardata`");
 
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::{collections::HashMap, ops::Range, path::PathBuf};
 
 #[cfg(feature = "lake")]
@@ -16,6 +18,7 @@ use near_indexer_primitives::{
     CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
 
+use crate::multiindexer::{ChainIndexers, ParallelJoinIndexers};
 use crate::{run_indexer, Indexer};
 
 #[tokio::test]
@@ -385,4 +388,106 @@ async fn preprocessing_should_supply_completed_transaction() {
     .unwrap();
 
     assert!(indexer.found);
+}
+
+#[derive(Debug, Clone)]
+struct CountingIndexer {
+    counter: Arc<AtomicU32>,
+    sleep_ms: u64,
+}
+
+impl CountingIndexer {
+    fn new(counter: Arc<AtomicU32>, sleep_ms: u64) -> Self {
+        Self { counter, sleep_ms }
+    }
+}
+
+#[async_trait]
+impl Indexer for CountingIndexer {
+    type Error = String;
+
+    async fn finalize(&mut self) -> Result<(), Self::Error> {
+        if self.sleep_ms > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(self.sleep_ms)).await;
+        }
+        self.counter.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_sequential_multi_indexer() {
+    let counter1 = Arc::new(AtomicU32::new(0));
+    let counter2 = Arc::new(AtomicU32::new(0));
+
+    let indexer1 = CountingIndexer::new(counter1.clone(), 50);
+    let indexer2 = CountingIndexer::new(counter2.clone(), 50);
+
+    let mut multi_indexer = indexer1.chain(indexer2);
+
+    let start = std::time::Instant::now();
+    multi_indexer.finalize().await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(counter1.load(Ordering::SeqCst), 1);
+    assert_eq!(counter2.load(Ordering::SeqCst), 1);
+    assert!(
+        elapsed.as_millis() >= 100,
+        "Sequential execution should take at least 100ms"
+    );
+}
+
+#[tokio::test]
+async fn test_parallel_multi_indexer() {
+    let counter1 = Arc::new(AtomicU32::new(0));
+    let counter2 = Arc::new(AtomicU32::new(0));
+
+    let indexer1 = CountingIndexer::new(counter1.clone(), 50);
+    let indexer2 = CountingIndexer::new(counter2.clone(), 50);
+
+    let mut parallel_indexer = indexer1.parallel_join(indexer2);
+
+    let start = std::time::Instant::now();
+    parallel_indexer.finalize().await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(counter1.load(Ordering::SeqCst), 1);
+    assert_eq!(counter2.load(Ordering::SeqCst), 1);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Parallel execution should take less than 100ms"
+    );
+}
+
+#[tokio::test]
+async fn test_chaining_multiple_indexers() {
+    let counter1 = Arc::new(AtomicU32::new(0));
+    let counter2 = Arc::new(AtomicU32::new(0));
+    let counter3 = Arc::new(AtomicU32::new(0));
+
+    let indexer1 = CountingIndexer::new(counter1.clone(), 0);
+    let indexer2 = CountingIndexer::new(counter2.clone(), 0);
+    let indexer3 = CountingIndexer::new(counter3.clone(), 0);
+
+    let mut sequential = indexer1.chain(indexer2.clone()).chain(indexer3.clone());
+    sequential.finalize().await.unwrap();
+
+    assert_eq!(counter1.load(Ordering::SeqCst), 1);
+    assert_eq!(counter2.load(Ordering::SeqCst), 1);
+    assert_eq!(counter3.load(Ordering::SeqCst), 1);
+
+    let counter1 = Arc::new(AtomicU32::new(0));
+    let counter2 = Arc::new(AtomicU32::new(0));
+    let counter3 = Arc::new(AtomicU32::new(0));
+
+    let indexer1 = CountingIndexer::new(counter1.clone(), 0);
+    let indexer2 = CountingIndexer::new(counter2.clone(), 0);
+    let indexer3 = CountingIndexer::new(counter3.clone(), 0);
+
+    let mut parallel = indexer1.parallel_join(indexer2).parallel_join(indexer3);
+    parallel.finalize().await.unwrap();
+
+    assert_eq!(counter1.load(Ordering::SeqCst), 1);
+    assert_eq!(counter2.load(Ordering::SeqCst), 1);
+    assert_eq!(counter3.load(Ordering::SeqCst), 1);
 }
