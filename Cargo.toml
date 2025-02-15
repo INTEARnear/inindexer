@@ -1,6 +1,6 @@
 [package]
 name = "inindexer"
-version = "1.2.0"
+version = "2.0.0"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/INTEARnear/inindexer"
@@ -11,46 +11,31 @@ description = "A framework for building NEAR Protocol indexers"
 [dependencies]
 async-trait = "0.1.79"
 log = "0.4.21"
-near-lake-framework = { version = "=0.7.9", optional = true }
-near-indexer-primitives = "0.23.0"
+near-indexer-primitives = "0.28.0"
 serde_json = "1.0.115"
 tokio-stream = "0.1.15"
-tokio = { version = "1.37.0", features = [ "signal", "fs", "rt", "sync" ] }
-reqwest = { version = "0.12.4", optional = true }
+tokio = { version = "1.37.0", features = ["signal", "fs", "rt", "sync"] }
+reqwest = "0.12.4"
 serde = { version = "1.0.198", features = ["derive"] }
 semver = "1.0.22"
 futures = "0.3"
 tokio-util = "0.7.11"
+fastnear-neardata-fetcher = { git = "https://github.com/fastnear/libs", branch = "flat-state" }
+fastnear-primitives = { git = "https://github.com/fastnear/libs", branch = "flat-state" }
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "time"] }
 simple_logger = "5.0.0"
 temp-file = "0.1.8"
 
-[features]
-default = []
-neardata = [ "reqwest" ]
-lake = [ "near-lake-framework" ]
-
 [[example]]
 name = "watch-the-slime"
 path = "examples/watch_the_slime.rs"
-required-features = [ "neardata" ]
-
-[[example]]
-name = "watch-the-slime-lake"
-path = "examples/watch_the_slime_lake.rs"
-required-features = [ "lake" ]
 
 [[example]]
 name = "ft-transfers"
 path = "examples/ft_transfers.rs"
-required-features = [ "neardata" ]
 
 [[example]]
 name = "download"
 path = "examples/download.rs"
-required-features = [ "neardata" ]
-
-[package.metadata.docs.rs]
-all-features = true

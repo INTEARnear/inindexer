@@ -1,16 +1,12 @@
-#[cfg(not(feature = "neardata"))]
-compile_error!("Use `cargo test --all-features` to run tests. If you want to skip AWS Lake test, run with `cargo test --features neardata`");
-
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::{collections::HashMap, ops::Range, path::PathBuf};
 
-#[cfg(feature = "lake")]
-use crate::lake::LakeStreamer;
+use crate::neardata::NeardataProvider;
 use crate::{
     message_provider::ParallelProviderStreamer, near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    neardata::NeardataProvider, AutoContinue, AutoContinueEnd, BlockIterator, CompleteTransaction,
-    IndexerOptions, PreprocessTransactionsSettings,
+    neardata_old::OldNeardataProvider, AutoContinue, AutoContinueEnd, BlockIterator,
+    CompleteTransaction, IndexerOptions, PreprocessTransactionsSettings,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::{
@@ -20,6 +16,44 @@ use near_indexer_primitives::{
 
 use crate::multiindexer::{ChainIndexers, ParallelJoinIndexers};
 use crate::{run_indexer, Indexer};
+
+#[tokio::test]
+async fn neardata_old_provider() {
+    const RANGE: Range<BlockHeight> =
+        MAINNET_GENESIS_BLOCK_HEIGHT..(MAINNET_GENESIS_BLOCK_HEIGHT + 10);
+
+    #[derive(Default)]
+    struct TestIndexer {
+        blocks_processed: BlockHeightDelta,
+    }
+
+    #[async_trait]
+    impl Indexer for TestIndexer {
+        type Error = String;
+
+        async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
+            assert!(RANGE.contains(&block.block.header.height));
+            self.blocks_processed += 1;
+            Ok(())
+        }
+    }
+
+    let mut indexer = TestIndexer::default();
+
+    run_indexer(
+        &mut indexer,
+        OldNeardataProvider::mainnet(),
+        IndexerOptions {
+            range: BlockIterator::iterator(RANGE),
+            preprocess_transactions: None,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(indexer.blocks_processed, 4)
+}
 
 #[tokio::test]
 async fn neardata_provider() {
@@ -84,7 +118,7 @@ async fn neardata_optimistic_provider() {
 
     run_indexer(
         &mut indexer,
-        NeardataProvider::mainnet().optimistic(),
+        OldNeardataProvider::mainnet().optimistic(),
         IndexerOptions {
             range: BlockIterator::iterator(RANGE),
             preprocess_transactions: None,
@@ -95,45 +129,6 @@ async fn neardata_optimistic_provider() {
     .unwrap();
 
     assert_eq!(indexer.blocks_processed, 4) // I guess old optimistic blocks are purged, so idk how to test
-}
-
-#[cfg(feature = "lake")]
-#[tokio::test]
-async fn lake_provider() {
-    const RANGE: Range<BlockHeight> =
-        MAINNET_GENESIS_BLOCK_HEIGHT..(MAINNET_GENESIS_BLOCK_HEIGHT + 10);
-
-    #[derive(Default)]
-    struct TestIndexer {
-        blocks_processed: BlockHeightDelta,
-    }
-
-    #[async_trait]
-    impl Indexer for TestIndexer {
-        type Error = String;
-
-        async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
-            assert!(RANGE.contains(&block.block.header.height));
-            self.blocks_processed += 1;
-            Ok(())
-        }
-    }
-
-    let mut indexer = TestIndexer::default();
-
-    run_indexer(
-        &mut indexer,
-        LakeStreamer::mainnet(),
-        IndexerOptions {
-            range: BlockIterator::iterator(RANGE),
-            preprocess_transactions: None,
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(indexer.blocks_processed, 4)
 }
 
 #[tokio::test]
@@ -165,7 +160,7 @@ async fn parallel_provider_with_correct_order() {
 
     run_indexer(
         &mut indexer,
-        ParallelProviderStreamer::new(NeardataProvider::mainnet(), 3),
+        ParallelProviderStreamer::new(OldNeardataProvider::mainnet(), 3),
         IndexerOptions {
             range: BlockIterator::iterator(RANGE),
             preprocess_transactions: None,
@@ -202,7 +197,7 @@ async fn auto_continue() {
 
     run_indexer(
         &mut indexer,
-        NeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from(save_path)),
@@ -222,7 +217,7 @@ async fn auto_continue() {
 
     run_indexer(
         &mut indexer,
-        NeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from(save_path)),
@@ -327,7 +322,7 @@ async fn prefetch_and_postfetch_dont_process_blocks() {
 
     run_indexer(
         &mut indexer,
-        NeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::iterator(RANGE),
             preprocess_transactions: Some(PreprocessTransactionsSettings {
@@ -374,7 +369,7 @@ async fn preprocessing_should_supply_completed_transaction() {
 
     run_indexer(
         &mut indexer,
-        NeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockIterator::iterator(116_917_957..=116_917_962),
             preprocess_transactions: Some(PreprocessTransactionsSettings {

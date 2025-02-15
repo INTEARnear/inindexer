@@ -119,7 +119,7 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for P {
 #[derive(Debug)]
 pub enum MessageStreamerError<E> {
     ProviderError(E),
-    ChannelSendError(tokio::sync::mpsc::error::SendError<StreamerMessage>),
+    ChannelSendError(Box<tokio::sync::mpsc::error::SendError<StreamerMessage>>),
 }
 
 /// A parallel implementation of [`MessageStreamer`] that uses multiple workers to fetch messages.
