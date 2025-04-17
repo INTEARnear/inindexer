@@ -7,16 +7,7 @@ pub mod near_utils;
 pub mod neardata;
 pub mod neardata_old;
 
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    ops::Range,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{collections::HashMap, fmt::Debug, ops::Range, path::PathBuf};
 
 use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
@@ -37,7 +28,8 @@ pub trait MessageStreamer {
 
     async fn stream(
         self,
-        range: impl Iterator<Item = BlockHeight> + Send + 'static,
+        first_block_inclusive: BlockHeight,
+        last_block_exclusive: Option<BlockHeight>,
     ) -> Result<
         (
             JoinHandle<Result<(), Self::Error>>,
@@ -180,20 +172,30 @@ pub async fn run_indexer<
     let mut indexer_state = IndexerState::new();
 
     let cancellation_token = CancellationToken::new();
-    let (mut range, post_processor): (_, Option<Box<dyn PostProcessor>>) = match options.range {
-        BlockIterator::Iterator(range) => (range, None),
-        BlockIterator::AutoContinue(auto_continue) => (
-            Box::new(auto_continue.range().await) as Box<dyn Iterator<Item = BlockHeight> + Send>,
-            Some(Box::new(auto_continue)),
-        ),
-        BlockIterator::Custom(range, post_processor) => (range, Some(post_processor)),
+    let ((start_block_height, end_block_height), post_processor): (
+        _,
+        Option<Box<dyn PostProcessor>>,
+    ) = match options.range {
+        BlockRange::Range {
+            start_inclusive: start,
+            end_exclusive: end,
+        } => ((start, end), None),
+        BlockRange::AutoContinue(auto_continue) => {
+            let range = auto_continue.range().await;
+            (
+                (
+                    range.start,
+                    if range.end == BlockHeight::MAX {
+                        None
+                    } else {
+                        Some(range.end)
+                    },
+                ),
+                Some(Box::new(auto_continue)),
+            )
+        }
     };
 
-    let start_block_height = if let Some(first) = range.next() {
-        first
-    } else {
-        return Ok(());
-    };
     let (prefetch_blocks, postfetch_blocks) =
         if let Some(preprocess_transactions) = &options.preprocess_transactions {
             (
@@ -204,28 +206,17 @@ pub async fn run_indexer<
             (0, 0)
         };
 
-    let current_block = Arc::new(AtomicU64::new(0));
-    let current_block_2 = Arc::clone(&current_block);
-    let is_stopping = Arc::new(AtomicBool::new(false));
-    let is_stopping_2 = Arc::clone(&is_stopping);
-
     let prefetch_range = ((start_block_height - prefetch_blocks as BlockHeightDelta)
         .max(options.genesis_block_height))..start_block_height;
-    let first_block_to_process = std::iter::once(start_block_height);
-    let postfetch_iter = std::iter::repeat_with(move || {
-        if !is_stopping_2.swap(true, Ordering::Relaxed) {
-            log::info!("Stopped processing new transactions, waiting for receipts of the current transactions to complete");
-        }
-        current_block_2.fetch_add(1, Ordering::Relaxed) + 1
-    })
-    .take(postfetch_blocks);
+    let postfetch_range = end_block_height.unwrap_or(BlockHeight::MAX)
+        ..(end_block_height.map_or(BlockHeight::MAX, |x| {
+            x + postfetch_blocks as BlockHeightDelta
+        }));
 
-    let range = prefetch_range
-        .clone()
-        .chain(first_block_to_process.chain(range).inspect(move |x| {
-            current_block.store(*x, Ordering::Relaxed);
-        }))
-        .chain(postfetch_iter);
+    let start_block_height_with_prefetch =
+        start_block_height.saturating_sub(prefetch_blocks as BlockHeightDelta);
+    let end_block_height_with_postfetch =
+        end_block_height.map(|x| x + postfetch_blocks as BlockHeightDelta);
 
     if options.ctrl_c_handler {
         let cancellation_token_2 = cancellation_token.clone();
@@ -245,19 +236,26 @@ pub async fn run_indexer<
     }
 
     let (handle, mut streamer) = streamer
-        .stream(range)
+        .stream(
+            start_block_height_with_prefetch,
+            end_block_height_with_postfetch,
+        )
         .await
         .map_err(InIndexerError::Streamer)?;
 
     indexer_state.on_start(indexer);
 
+    let mut has_sent_postfetch_message = false;
     while let Some(message) = streamer.recv().await {
-        let is_stopping = is_stopping.load(Ordering::Relaxed);
+        if postfetch_range.contains(&message.block.header.height) && !has_sent_postfetch_message {
+            has_sent_postfetch_message = true;
+            log::info!("Stopped processing new transactions, waiting for receipts of the current transactions to complete");
+        }
         let processing_options = BlockProcessingOptions {
             height: message.block.header.height,
             preprocess: options.preprocess_transactions.is_some(),
-            preprocess_new_transactions: !is_stopping,
-            handle_raw_events: !is_stopping
+            preprocess_new_transactions: !postfetch_range.contains(&message.block.header.height),
+            handle_raw_events: !postfetch_range.contains(&message.block.header.height)
                 && !prefetch_range.contains(&message.block.header.height),
             handle_preprocessed_transactions_by_indexer: !prefetch_range
                 .contains(&message.block.header.height),
@@ -287,7 +285,11 @@ pub async fn run_indexer<
         if !prefetch_range.contains(&message.block.header.height) {
             if let Some(post_processor) = &post_processor {
                 post_processor
-                    .after_block(&message, processing_options, is_stopping)
+                    .after_block(
+                        &message,
+                        processing_options,
+                        postfetch_range.contains(&message.block.header.height),
+                    )
                     .await
                     .map_err(InIndexerError::PostProcessor)?;
             }
@@ -314,7 +316,7 @@ pub struct IndexerOptions {
     /// If true, the indexer will stop if one of indexer's methods returns an error.
     pub stop_on_error: bool,
     /// Blocks range to process. If None, the indexer will process all blocks from the streamer.
-    pub range: BlockIterator,
+    pub range: BlockRange,
     /// If enabled, the indexer will preprocess transactions and receipts, so you can access them in the
     /// [`Indexer::on_transaction`] and [`Indexer::on_receipt`] methods. If you don't need this, set to
     /// false to save some memory. If disabled, you can still access transactions and receipts in the
@@ -329,34 +331,29 @@ pub struct IndexerOptions {
     pub ctrl_c_handler: bool,
 }
 
-pub enum BlockIterator {
-    /// Custom range or iterator of blocks to process. The iterator can be finite or infinite. If it's finite,
+pub enum BlockRange {
+    /// Consecutive range of blocks to process. The range can be finite or infinite. If it's finite,
     /// the indexer will stop once the iterator is exhausted.
-    Iterator(Box<dyn Iterator<Item = BlockHeight> + Send>),
+    Range {
+        start_inclusive: BlockHeight,
+        end_exclusive: Option<BlockHeight>,
+    },
     /// If set, the indexer will save the last processed block height to the file and continue from it
     /// on the next run. If the indexer was forcibly stopped in the middle of processing a block, it will
     /// start from the beginning of the block, potentially processing some transactions twice.
     /// Doesn't work with [`postfetch_blocks`](PreprocessTransactionsSettings::postfetch_blocks) option
     /// because this stream is infinite.
     AutoContinue(AutoContinue),
-    Custom(
-        Box<dyn Iterator<Item = BlockHeight> + Send>,
-        Box<dyn PostProcessor>,
-    ),
 }
 
-impl BlockIterator {
-    pub fn iterator(range: impl Iterator<Item = BlockHeight> + Send + 'static) -> Self {
-        BlockIterator::Iterator(Box::new(range))
-    }
-}
-
-impl Debug for BlockIterator {
+impl Debug for BlockRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BlockIterator::Iterator(_) => write!(f, "Iterator"),
-            BlockIterator::AutoContinue(_) => write!(f, "AutoContinue"),
-            BlockIterator::Custom(_, _) => write!(f, "Custom"),
+            BlockRange::Range {
+                start_inclusive: start,
+                end_exclusive: end,
+            } => write!(f, "Range {{ start: {}, end: {:?} }}", start, end),
+            BlockRange::AutoContinue(_) => write!(f, "AutoContinue"),
         }
     }
 }
@@ -384,14 +381,12 @@ impl Default for PreprocessTransactionsSettings {
     }
 }
 
-impl Default for IndexerOptions {
-    fn default() -> Self {
+impl IndexerOptions {
+    pub fn default_with_range(range: BlockRange) -> Self {
         Self {
             stop_on_error: false,
-            range: BlockIterator::iterator(std::iter::once_with(|| {
-                panic!("Range is not set in IndexerOptions")
-            })),
-            preprocess_transactions: Some(PreprocessTransactionsSettings::default()),
+            range,
+            preprocess_transactions: None,
             genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
             ctrl_c_handler: true,
         }

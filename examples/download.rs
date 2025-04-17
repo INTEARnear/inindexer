@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use inindexer::{
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
     neardata::NeardataProvider,
-    run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
+    run_indexer, AutoContinue, BlockRange, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
 
@@ -95,24 +95,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => unreachable!(),
     };
     let range = match (start_block, end_block) {
-        (StartBlockHeight::Genesis, EndBlockHeight::Infinity) => {
-            BlockIterator::iterator(start_block_height..)
-        }
+        (StartBlockHeight::Genesis, EndBlockHeight::Infinity) => BlockRange::Range {
+            start_inclusive: start_block_height,
+            end_exclusive: None,
+        },
         (StartBlockHeight::Genesis, EndBlockHeight::AutoContinue) => {
-            BlockIterator::AutoContinue(AutoContinue {
+            BlockRange::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
                 end: inindexer::AutoContinueEnd::Infinite,
             })
         }
         (StartBlockHeight::Genesis, EndBlockHeight::BlockHeight(end_block_height)) => {
-            BlockIterator::iterator(start_block_height..=end_block_height)
+            BlockRange::Range {
+                start_inclusive: start_block_height,
+                end_exclusive: Some(end_block_height + 1),
+            }
         }
         (StartBlockHeight::BlockHeight(start_block_height), EndBlockHeight::Infinity) => {
-            BlockIterator::iterator(start_block_height..)
+            BlockRange::Range {
+                start_inclusive: start_block_height,
+                end_exclusive: None,
+            }
         }
         (StartBlockHeight::BlockHeight(start_block_height), EndBlockHeight::AutoContinue) => {
-            BlockIterator::AutoContinue(AutoContinue {
+            BlockRange::AutoContinue(AutoContinue {
                 start_height_if_does_not_exist: start_block_height,
                 save_location: Box::new(path.join("last_block.txt")),
                 end: inindexer::AutoContinueEnd::Infinite,
@@ -121,7 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (
             StartBlockHeight::BlockHeight(start_block_height),
             EndBlockHeight::BlockHeight(end_block_height),
-        ) => BlockIterator::iterator(start_block_height..=end_block_height),
+        ) => BlockRange::Range {
+            start_inclusive: start_block_height,
+            end_exclusive: Some(end_block_height + 1),
+        },
     };
 
     let mut indexer = DownloadIndexer { path };

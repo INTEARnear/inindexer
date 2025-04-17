@@ -1,6 +1,6 @@
 [package]
 name = "inindexer"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/INTEARnear/inindexer"
@@ -9,19 +9,19 @@ documentation = "https://docs.rs/inindexer"
 description = "A framework for building NEAR Protocol indexers"
 
 [dependencies]
-async-trait = "0.1.79"
-log = "0.4.21"
-near-indexer-primitives = "0.28.0"
-serde_json = "1.0.115"
-tokio-stream = "0.1.15"
-tokio = { version = "1.37.0", features = ["signal", "fs", "rt", "sync"] }
-reqwest = "0.12.4"
-serde = { version = "1.0.198", features = ["derive"] }
-semver = "1.0.22"
+async-trait = "0.1"
+log = "0.4"
+near-indexer-primitives = "0.29"
+serde_json = "1"
+tokio-stream = "0.1"
+tokio = { version = "1.37", features = ["signal", "fs", "rt", "sync"] }
+reqwest = "0.12"
+serde = { version = "1", features = ["derive"] }
+semver = "1"
 futures = "0.3"
-tokio-util = "0.7.11"
-fastnear-neardata-fetcher = "0.1.0"
-fastnear-primitives = "0.1.0"
+tokio-util = "0.7"
+fastnear-neardata-fetcher = "0.3"
+fastnear-primitives = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "time"] }

@@ -6,7 +6,7 @@ InIndexer is a NEAR indexer framework.
 ## Features
 
 - Different sources of near data: [neardata](https://github.com/fastnear/neardata-server) (implemented),
-  nearcore indexer framework, you can add your own sources by implementing `MessageStreamer` or
+  nearcore indexer framework (not implemented yet), you can add your own sources by implementing `MessageStreamer` or
   `message_provider::MessageProvider` trait.
 - Simple indexer interface: you only need to implement `Indexer` trait and handle receipts, blocks,
   transactions, or transactions with all receipts included, at a cost of some preprocessing overhead (around 1-2ms
@@ -24,4 +24,4 @@ If you want to see some examples, check minimal examples in [examples/](examples
 
 To run multiple indexers at once without making a new request for each indexer, use `MultiIndexer`, with `MapErrorIndexer` if your indexers have different error types.
 
-If you use neardata, you can enable optimistic block retrieval if you don't care about finality and need to minimize latency, just call `.optimistic()` on the data provider.
+If you use neardata, you can enable optimistic block retrieval if you don't care about finality and need to minimize latency, just call `.optimistic()` (OldNeardataProvider) and `.finality(Finality::DoomSlug)` (NeardataProvider) on the data provider.

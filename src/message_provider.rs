@@ -58,7 +58,8 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
 
     async fn stream(
         mut self,
-        range: impl Iterator<Item = BlockHeight> + Send + 'static,
+        first_block_inclusive: BlockHeight,
+        last_block_exclusive: Option<BlockHeight>,
     ) -> Result<
         (
             tokio::task::JoinHandle<Result<(), Self::Error>>,
@@ -68,7 +69,9 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ProviderStr
     > {
         let (tx, rx) = tokio::sync::mpsc::channel(self.buffer_size);
         let join_handle = tokio::spawn(async move {
-            'outer: for next_block_height in range {
+            'outer: for next_block_height in
+                first_block_inclusive..last_block_exclusive.unwrap_or(BlockHeight::MAX)
+            {
                 let mut retries = 0;
                 loop {
                     retries += 1;
@@ -104,7 +107,8 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for P {
 
     async fn stream(
         self,
-        range: impl Iterator<Item = BlockHeight> + Send + 'static,
+        first_block_inclusive: BlockHeight,
+        last_block_exclusive: Option<BlockHeight>,
     ) -> Result<
         (
             tokio::task::JoinHandle<Result<(), Self::Error>>,
@@ -112,7 +116,9 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for P {
         ),
         Self::Error,
     > {
-        ProviderStreamer::new(self).stream(range).await
+        ProviderStreamer::new(self)
+            .stream(first_block_inclusive, last_block_exclusive)
+            .await
     }
 }
 
@@ -144,7 +150,8 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ParallelPro
 
     async fn stream(
         self,
-        range: impl Iterator<Item = BlockHeight> + Send + 'static,
+        first_block_inclusive: BlockHeight,
+        last_block_exclusive: Option<BlockHeight>,
     ) -> Result<
         (
             tokio::task::JoinHandle<Result<(), Self::Error>>,
@@ -203,7 +210,10 @@ impl<P: MessageProvider + Send + Sync + 'static> MessageStreamer for ParallelPro
                 });
             }
 
-            for (i, next_block_height) in range.enumerate() {
+            for (i, next_block_height) in (first_block_inclusive
+                ..last_block_exclusive.unwrap_or(BlockHeight::MAX))
+                .enumerate()
+            {
                 if current_block_height.load(Ordering::Relaxed) == 0 {
                     current_block_height.store(next_block_height, Ordering::Relaxed);
                 }

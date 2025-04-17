@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use inindexer::{
     near_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
     neardata::NeardataProvider,
-    run_indexer, AutoContinue, BlockIterator, Indexer, IndexerOptions,
+    run_indexer, AutoContinue, BlockRange, Indexer, IndexerOptions,
 };
 use near_indexer_primitives::{views::ExecutionStatusView, StreamerMessage};
 
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut indexer,
         NeardataProvider::mainnet(),
         IndexerOptions {
-            range: BlockIterator::AutoContinue(AutoContinue {
+            range: BlockRange::AutoContinue(AutoContinue {
                 save_location: Box::new(PathBuf::from("example_ft_trasnfers_last_block.txt")),
                 start_height_if_does_not_exist: 139770436,
                 end: inindexer::AutoContinueEnd::Infinite,
