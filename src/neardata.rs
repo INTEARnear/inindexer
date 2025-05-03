@@ -37,6 +37,18 @@ impl NeardataProvider {
                 enable_r2_archive_sync: true,
                 end_block_height: None,
                 finality: Finality::Final,
+                user_agent: Some(format!(
+                    "{} {} {}",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION"),
+                    if cfg!(test) {
+                        "test"
+                    } else if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    }
+                )),
             },
         }
     }
