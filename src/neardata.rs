@@ -93,9 +93,9 @@ impl MessageStreamer for NeardataProvider {
         ),
         Self::Error,
     > {
-        let (tx, rx) = sync::mpsc::channel(100000);
+        let (tx, rx) = sync::mpsc::channel(100);
         let join_handle = tokio::spawn(async move {
-            let (fastnear_tx, mut fastnear_rx) = tokio::sync::mpsc::channel(100000);
+            let (fastnear_tx, mut fastnear_rx) = tokio::sync::mpsc::channel(100);
             let is_running = Arc::new(AtomicBool::new(true));
             let join_handle = tokio::spawn(fetcher::start_fetcher(
                 FetcherConfig {
