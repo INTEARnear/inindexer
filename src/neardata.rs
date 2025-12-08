@@ -28,13 +28,13 @@ impl NeardataProvider {
                 num_threads: std::thread::available_parallelism()
                     .map(|p| p.get() as u64)
                     .unwrap_or(1),
+                num_lookahead_threads: 4,
                 start_block_height: None, // will be set later
                 chain_id,
                 timeout_duration: None,
                 retry_duration: None,
                 disable_archive_sync: false,
                 auth_bearer_token: None,
-                enable_r2_archive_sync: true,
                 end_block_height: None,
                 finality: Finality::Final,
                 user_agent: Some(format!(

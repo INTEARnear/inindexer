@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 pub use near_indexer_primitives::near_primitives::serialize::dec_format;
 use near_indexer_primitives::{
-    types::{AccountId, Balance, BlockHeight},
+    types::{AccountId, BlockHeight},
     views::ExecutionStatusView,
     IndexerExecutionOutcomeWithReceipt,
 };
@@ -12,6 +12,8 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 pub const MAINNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 9820210;
 pub const TESTNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 100000000;
+
+pub type FtBalance = u128;
 
 /// Log data container that is used in [NEP-297](https://nomicon.io/Standards/EventsFormat).
 #[derive(Deserialize, Debug, Clone)]
@@ -96,7 +98,7 @@ pub struct FtMintEvent {
     pub owner_id: AccountId,
     /// The number of tokens minted
     #[serde(with = "dec_format")]
-    pub amount: Balance,
+    pub amount: u128,
     /// Optional message
     pub memo: Option<String>,
 }
@@ -121,7 +123,7 @@ pub struct FtBurnEvent {
     pub owner_id: AccountId,
     /// The number of tokens to burn
     #[serde(with = "dec_format")]
-    pub amount: Balance,
+    pub amount: FtBalance,
     /// Optional message
     pub memo: Option<String>,
 }
@@ -150,7 +152,7 @@ pub struct FtTransferEvent {
     pub new_owner_id: AccountId,
     /// The number of tokens to transfer
     #[serde(with = "dec_format")]
-    pub amount: Balance,
+    pub amount: FtBalance,
     /// Optional message
     pub memo: Option<String>,
 }
@@ -170,7 +172,7 @@ impl FtTransferLog {
             return Err("Log contains multiple ' from '".to_string());
         }
         let amount = parts[0]
-            .parse::<Balance>()
+            .parse::<FtBalance>()
             .map_err(|e| format!("Failed to parse transfer amount: {}", e))?;
         let parts: Vec<&str> = parts[1].split(" to ").collect();
         if parts.len() < 2 {
@@ -508,7 +510,7 @@ fn test_dec_format_vec() {
     #[serde(transparent)]
     struct TestVec {
         #[serde(with = "dec_format_vec")]
-        vec: Vec<Balance>,
+        vec: Vec<FtBalance>,
     }
 
     let test_vec = TestVec {
@@ -604,7 +606,7 @@ fn test_dec_format_map() {
     #[serde(transparent)]
     struct TestMap {
         #[serde(with = "dec_format_map")]
-        map: BTreeMap<String, Balance>,
+        map: BTreeMap<String, FtBalance>,
     }
 
     let mut map = BTreeMap::new();
