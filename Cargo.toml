@@ -1,6 +1,6 @@
 [package]
 name = "inindexer"
-version = "5.0.0"
+version = "5.0.1"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/INTEARnear/inindexer"
@@ -20,7 +20,7 @@ serde = { version = "1", features = ["derive"] }
 semver = "1"
 futures = "0.3"
 tokio-util = "0.7"
-fastnear-neardata-fetcher = "0.34.1"
+fastnear-neardata-fetcher = ">=0.34.2"
 fastnear-primitives = "0.34.1"
 
 [dev-dependencies]

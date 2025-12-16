@@ -502,9 +502,9 @@ dependencies = [
 
 [[package]]
 name = "fastnear-neardata-fetcher"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76bc6d3343a551cd6e953706a90104e1872f3836b86d965f77b896d059cdf934"
+checksum = "11b1aad3834e1bbb69204436e51ebf097e729675bda0b133e4e9aa890ca1519c"
 dependencies = [
  "fastnear-primitives",
  "flate2",
@@ -519,9 +519,9 @@ dependencies = [
 
 [[package]]
 name = "fastnear-primitives"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8671cf160cc43a2f0b01776c5cba79df8fc06a8f18d322811e96240febbb29e7"
+checksum = "80e2b9e3f8fcc7b41660cf098808fb51576f6bbb776c8773e9aa246d73ca3717"
 dependencies = [
  "borsh",
  "near-indexer-primitives",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "inindexer"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "async-trait",
  "fastnear-neardata-fetcher",
@@ -1279,9 +1279,9 @@ dependencies = [
 
 [[package]]
 name = "near-config-utils"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5abe35e6d4b5e7575706ad607412e0f1e628e1786fcffc96c6e16aea10cebfe4"
+checksum = "433222818fe09a2db59c986a881b26d777e826565fddd9a62015b28ac689d7f7"
 dependencies = [
  "anyhow",
  "json_comments",
@@ -1291,9 +1291,9 @@ dependencies = [
 
 [[package]]
 name = "near-crypto"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "705d23809bf4847ccb7d0fc2141a12b68e0d950cd425fb1cb1cffc547b73f08a"
+checksum = "e1f67c5a37050696304b08104023e5ecf26b268e0fb165d631217499e87324a4"
 dependencies = [
  "blake2",
  "borsh",
@@ -1316,9 +1316,9 @@ dependencies = [
 
 [[package]]
 name = "near-fmt"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84560d0ae50f85dbaca950bd9a8377061080f95ba04f095eb67a1d2e84a3b51c"
+checksum = "630bb25e79b1df487d2d86fd05c6d0c25555c11f79a4db9add918f6f44289dd0"
 dependencies = [
  "near-primitives-core",
 ]
@@ -1335,9 +1335,9 @@ dependencies = [
 
 [[package]]
 name = "near-indexer-primitives"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dca0f140a9ef21c8b4f0494c0365c8e4e0babd1228ed1875e82018c7ac296a44"
+checksum = "ef936e516f985435b77e5ea0f892fdba6d4973674613a5f5f3331458464f107f"
 dependencies = [
  "near-primitives",
  "serde",
@@ -1345,9 +1345,9 @@ dependencies = [
 
 [[package]]
 name = "near-parameters"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99bf2f0e9bfaa5b7410feac9470d27661a9fcbedcda961f11efbb04d0b5ec068"
+checksum = "cc5fac1a884400b3e1a9cf66a773d05eba015a42ddda2e44dcc72cd2b27bab90"
 dependencies = [
  "borsh",
  "enum-map",
@@ -1364,9 +1364,9 @@ dependencies = [
 
 [[package]]
 name = "near-primitives"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08bdbe402627f4df3471390c6c44e66a56999a533eedadc324f6f54301667f8b"
+checksum = "374569e1a702e826c166b8a40d5153d93ba831cf98ed170aeb70cc4ce4d02281"
 dependencies = [
  "arbitrary",
  "base64 0.21.7",
@@ -1404,9 +1404,9 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "132139fea1933ee3d5050abb092ab7af022c374df26ad181dd0e22302c74ddc0"
+checksum = "4d2061e5acdbc46b944134702cf3db8d9f441a0f39f2c9954f130776fd74506b"
 dependencies = [
  "arbitrary",
  "base64 0.21.7",
@@ -1428,15 +1428,15 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-core"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3652cdf9b13de96d9b23b4ad954652aaa84bdeec5168d8b8c7c229c7d36f41a"
+checksum = "8749e905b01db982d8ca42bcd04ae8484528c8690efa41b390c7777ad62d6515"
 
 [[package]]
 name = "near-schema-checker-lib"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8de81b55e49e8a0bf679f87aee27c6521d5b9a4a73474f753b2a127529ecf78a"
+checksum = "945088bd5a709e9f92363b7fdc0b1f7ef001ab0a99fc69da81092dd8b03cbd84"
 dependencies = [
  "near-schema-checker-core",
  "near-schema-checker-macro",
@@ -1444,21 +1444,21 @@ dependencies = [
 
 [[package]]
 name = "near-schema-checker-macro"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79d63d022e686c6b92426c98f011908037730d557e815d6c813d5686030a6b53"
+checksum = "405a893cb2f78286748d0f534a7bcaf42abb30f77737e9aa786dad3416112803"
 
 [[package]]
 name = "near-stdx"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a501d5074c5c341725fe801ed191f45ef97e0a4d54d6ef5c3e87363930d4d0b1"
+checksum = "5d6e8147400c4e48cdef2cac65f69c108065fb654cf8cadad284f509440ab704"
 
 [[package]]
 name = "near-time"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5458c180f75aba82c50aca6411d46ca085a6e8535895fa1aa84bd15f560cbd43"
+checksum = "d2ade8ada8815689eb7182871b707c638e7d8b5deb8247fd4fe738ba1be12702"
 dependencies = [
  "parking_lot",
  "serde",
