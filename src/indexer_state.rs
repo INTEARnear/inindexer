@@ -52,7 +52,10 @@ impl IndexerState {
         options: &BlockProcessingOptions,
     ) -> Result<(), I::Error> {
         self.blocks_received += 1;
-        if self.blocks_received % PERFORMANCE_REPORT_EVERY_BLOCKS == 0 {
+        if self
+            .blocks_received
+            .is_multiple_of(PERFORMANCE_REPORT_EVERY_BLOCKS)
+        {
             self.report_performance();
         }
 
