@@ -483,7 +483,7 @@ where
 }
 
 #[async_trait]
-pub trait PostProcessor {
+pub trait PostProcessor: Send {
     async fn after_block(
         &self,
         block: &StreamerMessage,
