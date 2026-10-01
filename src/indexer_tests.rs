@@ -1,22 +1,22 @@
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{collections::HashMap, ops::Range, path::PathBuf};
 
 use crate::neardata::NeardataProvider;
 use crate::{
-    message_provider::ParallelProviderStreamer, near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    neardata_old::OldNeardataProvider, AutoContinue, AutoContinueEnd, BlockRange,
-    CompleteTransaction, IndexerOptions, PreprocessTransactionsSettings,
+    AutoContinue, AutoContinueEnd, BlockRange, CompleteTransaction, IndexerOptions,
+    PreprocessTransactionsSettings, message_provider::ParallelProviderStreamer,
+    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT, neardata_old::OldNeardataProvider,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::types::Finality;
 use near_indexer_primitives::{
-    types::{BlockHeight, BlockHeightDelta},
     CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
+    types::{BlockHeight, BlockHeightDelta},
 };
 
 use crate::multiindexer::{ChainIndexers, ParallelJoinIndexers};
-use crate::{run_indexer, Indexer};
+use crate::{Indexer, run_indexer};
 
 #[tokio::test]
 async fn neardata_old_provider() {
@@ -43,7 +43,7 @@ async fn neardata_old_provider() {
 
     run_indexer(
         &mut indexer,
-        OldNeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet_fastnear(),
         IndexerOptions::default_with_range(BlockRange::Range {
             start_inclusive: RANGE.start,
             end_exclusive: Some(RANGE.end),
@@ -158,7 +158,7 @@ async fn parallel_provider_with_correct_order() {
 
     run_indexer(
         &mut indexer,
-        ParallelProviderStreamer::new(OldNeardataProvider::mainnet(), 3),
+        ParallelProviderStreamer::new(OldNeardataProvider::mainnet_fastnear(), 3),
         IndexerOptions::default_with_range(BlockRange::Range {
             start_inclusive: RANGE.start,
             end_exclusive: Some(RANGE.end),

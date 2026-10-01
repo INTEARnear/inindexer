@@ -5,9 +5,12 @@ InIndexer is a NEAR indexer framework.
 
 ## Features
 
-- Different sources of near data: [neardata](https://github.com/fastnear/neardata-server) (implemented),
-  nearcore indexer framework (not implemented yet), you can add your own sources by implementing `MessageStreamer` or
-  `message_provider::MessageProvider` trait.
+- Different sources of near data, each behind a cargo feature (none are enabled by default):
+  - `neardata`: `NeardataProvider`, [neardata](https://github.com/fastnear/neardata-server) through FastNEAR's fetcher.
+  - `neardata-old`: `OldNeardataProvider`, neardata or any neardata-compatible server, one block per request.
+  - `teardata`: `TeardataProvider`, same as neardata but by Intear.
+
+  You can add your own sources by implementing `MessageStreamer` or `message_provider::MessageProvider` trait.
 - Simple indexer interface: you only need to implement `Indexer` trait and handle receipts, blocks,
   transactions, or transactions with all receipts included, at a cost of some preprocessing overhead (around 1-2ms
   in release mode with 80-100 TPS on Slime's PC, this can be disabled in `IndexerOptions::preprocess_transactions`).
@@ -24,4 +27,4 @@ If you want to see some examples, check minimal examples in [examples/](examples
 
 To run multiple indexers at once without making a new request for each indexer, use `MultiIndexer`, with `MapErrorIndexer` if your indexers have different error types.
 
-If you use neardata, you can enable optimistic block retrieval if you don't care about finality and need to minimize latency, just call `.optimistic()` (OldNeardataProvider) and `.finality(Finality::DoomSlug)` (NeardataProvider) on the data provider.
+If you use neardata or teardata, you can enable optimistic block retrieval if you don't care about finality and need to minimize latency, just call `.optimistic()` (OldNeardataProvider) and `.finality(Finality::DoomSlug)` (NeardataProvider, TeardataProvider) on the data provider.

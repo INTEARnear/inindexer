@@ -1,14 +1,14 @@
 use std::{
     fmt::Display,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use async_trait::async_trait;
-use fastnear_neardata_fetcher::{fetcher, FetcherConfig};
+use fastnear_neardata_fetcher::{FetcherConfig, fetcher};
 use fastnear_primitives::types::ChainId;
 use near_indexer_primitives::{
-    types::{BlockHeight, Finality},
     IndexerExecutionOutcomeWithReceipt, IndexerShard, StreamerMessage,
+    types::{BlockHeight, Finality},
 };
 use tokio::{
     sync::{self, mpsc},

@@ -112,47 +112,40 @@ impl IndexerState {
                 if let Some(tx_id) = self
                     .receipt_id_to_transaction
                     .remove(&receipt.receipt.receipt_id)
+                    && options.preprocess
+                    && let Some(incomplete_transaction) = self.pending_transactions.get_mut(&tx_id)
                 {
-                    if options.preprocess {
-                        if let Some(incomplete_transaction) =
-                            self.pending_transactions.get_mut(&tx_id)
-                        {
-                            let processed_receipt = TransactionReceipt {
-                                receipt: receipt.clone(),
-                                block_height: message.block.header.height,
-                                block_timestamp_nanosec: message.block.header.timestamp_nanosec
-                                    as u128,
-                            };
+                    let processed_receipt = TransactionReceipt {
+                        receipt: receipt.clone(),
+                        block_height: message.block.header.height,
+                        block_timestamp_nanosec: message.block.header.timestamp_nanosec as u128,
+                    };
 
-                            if options.handle_preprocessed_transactions_by_indexer {
-                                indexer
-                                    .on_receipt(&processed_receipt, incomplete_transaction, message)
-                                    .await?;
-                            }
+                    if options.handle_preprocessed_transactions_by_indexer {
+                        indexer
+                            .on_receipt(&processed_receipt, incomplete_transaction, message)
+                            .await?;
+                    }
 
-                            incomplete_transaction
-                                .receipts
-                                .insert(receipt.receipt.receipt_id, Some(processed_receipt));
-                            for new_receipt_id in
-                                receipt.execution_outcome.outcome.receipt_ids.iter()
-                            {
-                                self.receipt_id_to_transaction
-                                    .insert(*new_receipt_id, tx_id);
-                                incomplete_transaction
-                                    .receipts
-                                    .insert(*new_receipt_id, None);
-                            }
+                    incomplete_transaction
+                        .receipts
+                        .insert(receipt.receipt.receipt_id, Some(processed_receipt));
+                    for new_receipt_id in receipt.execution_outcome.outcome.receipt_ids.iter() {
+                        self.receipt_id_to_transaction
+                            .insert(*new_receipt_id, tx_id);
+                        incomplete_transaction
+                            .receipts
+                            .insert(*new_receipt_id, None);
+                    }
 
-                            if let Ok(complete_transaction) =
-                                CompleteTransaction::try_from(&*incomplete_transaction)
-                            {
-                                self.pending_transactions.remove(&tx_id);
-                                if options.handle_preprocessed_transactions_by_indexer {
-                                    indexer
-                                        .on_transaction(&complete_transaction, message)
-                                        .await?;
-                                }
-                            }
+                    if let Ok(complete_transaction) =
+                        CompleteTransaction::try_from(&*incomplete_transaction)
+                    {
+                        self.pending_transactions.remove(&tx_id);
+                        if options.handle_preprocessed_transactions_by_indexer {
+                            indexer
+                                .on_transaction(&complete_transaction, message)
+                                .await?;
                         }
                     }
                 }

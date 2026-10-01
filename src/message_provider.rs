@@ -1,13 +1,13 @@
 use std::{
     fmt::{Debug, Display},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
 use async_trait::async_trait;
-use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
+use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
 
 use crate::MessageStreamer;
 

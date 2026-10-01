@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
+use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
 
 use crate::message_provider::MessageProvider;
 
@@ -43,12 +43,20 @@ impl OldNeardataProvider {
         }
     }
 
-    pub fn mainnet() -> Self {
+    pub fn mainnet_fastnear() -> Self {
         Self::with_base_url("https://mainnet.neardata.xyz".to_string())
     }
 
-    pub fn testnet() -> Self {
+    pub fn testnet_fastnear() -> Self {
         Self::with_base_url("https://testnet.neardata.xyz".to_string())
+    }
+
+    pub fn mainnet_intear() -> Self {
+        Self::with_base_url("https://mainnet-teardata.intea.rs".to_string())
+    }
+
+    pub fn testnet_intear() -> Self {
+        Self::with_base_url("https://testnet-teardata.intea.rs".to_string())
     }
 
     pub fn optimistic(mut self) -> Self {

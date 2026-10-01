@@ -11,11 +11,12 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use inindexer::{
+    AutoContinue, BlockRange, Indexer, IndexerOptions,
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
     neardata::NeardataProvider,
-    run_indexer, AutoContinue, BlockRange, Indexer, IndexerOptions,
+    run_indexer,
 };
-use near_indexer_primitives::{types::BlockHeight, StreamerMessage};
+use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
 
 struct DownloadIndexer {
     path: PathBuf,
@@ -67,7 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() != 5 {
-        eprintln!("Usage: {} <path> <mainnet | testnet> <start_block_height | genesis> <end_block_height | infinity | autocontinue>", args[0]);
+        eprintln!(
+            "Usage: {} <path> <mainnet | testnet> <start_block_height | genesis> <end_block_height | infinity | autocontinue>",
+            args[0]
+        );
         std::process::exit(1);
     }
 

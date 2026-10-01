@@ -2,10 +2,10 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    neardata_old::OldNeardataProvider, run_indexer, BlockRange, CompleteTransaction, Indexer,
-    IndexerOptions,
+    BlockRange, CompleteTransaction, Indexer, IndexerOptions, neardata_old::OldNeardataProvider,
+    run_indexer,
 };
-use near_indexer_primitives::{types::AccountId, StreamerMessage};
+use near_indexer_primitives::{StreamerMessage, types::AccountId};
 
 struct WatcherIndexer {
     tracked_account: AccountId,
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     run_indexer(
         &mut indexer,
-        OldNeardataProvider::mainnet(),
+        OldNeardataProvider::mainnet_fastnear(),
         IndexerOptions::default_with_range(BlockRange::Range {
             start_inclusive: 112_037_807,
             end_exclusive: Some(112_037_810),

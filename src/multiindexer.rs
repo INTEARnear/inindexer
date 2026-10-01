@@ -200,11 +200,11 @@ pub struct MapErrorIndexer<
 }
 
 impl<
-        E: Debug + Send + Sync + 'static,
-        E2: Debug + Send + Sync + 'static,
-        I: Indexer<Error = E>,
-        F: Fn(E) -> E2 + Send + Sync + 'static,
-    > MapErrorIndexer<E, E2, I, F>
+    E: Debug + Send + Sync + 'static,
+    E2: Debug + Send + Sync + 'static,
+    I: Indexer<Error = E>,
+    F: Fn(E) -> E2 + Send + Sync + 'static,
+> MapErrorIndexer<E, E2, I, F>
 {
     pub fn new(indexer: I, map: F) -> Self {
         Self { indexer, map }
@@ -213,11 +213,11 @@ impl<
 
 #[async_trait]
 impl<
-        E: Debug + Send + Sync + 'static,
-        E2: Debug + Send + Sync + 'static,
-        I: Indexer<Error = E>,
-        F: Fn(E) -> E2 + Send + Sync + 'static,
-    > Indexer for MapErrorIndexer<E, E2, I, F>
+    E: Debug + Send + Sync + 'static,
+    E2: Debug + Send + Sync + 'static,
+    I: Indexer<Error = E>,
+    F: Fn(E) -> E2 + Send + Sync + 'static,
+> Indexer for MapErrorIndexer<E, E2, I, F>
 {
     type Error = E2;
 

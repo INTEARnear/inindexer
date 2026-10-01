@@ -1,11 +1,17 @@
 mod indexer_state;
-#[cfg(test)]
+#[cfg(all(test, feature = "neardata", feature = "neardata-old"))]
 mod indexer_tests;
 pub mod message_provider;
 pub mod multiindexer;
 pub mod near_utils;
+#[cfg(feature = "neardata")]
 pub mod neardata;
+#[cfg(feature = "neardata-old")]
 pub mod neardata_old;
+#[cfg(feature = "teardata")]
+pub mod teardata;
+#[cfg(all(test, feature = "teardata"))]
+mod teardata_tests;
 
 use std::{collections::HashMap, fmt::Debug, ops::Range, path::PathBuf};
 
@@ -13,11 +19,11 @@ use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
 pub use near_indexer_primitives;
 use near_indexer_primitives::{
+    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
     types::{BlockHeight, BlockHeightDelta},
     views::ExecutionStatusView,
-    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
 };
-use near_utils::{is_receipt_successful, MAINNET_GENESIS_BLOCK_HEIGHT};
+use near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, is_receipt_successful};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -249,7 +255,9 @@ pub async fn run_indexer<
     while let Some(message) = streamer.recv().await {
         if postfetch_range.contains(&message.block.header.height) && !has_sent_postfetch_message {
             has_sent_postfetch_message = true;
-            log::info!("Stopped processing new transactions, waiting for receipts of the current transactions to complete");
+            log::info!(
+                "Stopped processing new transactions, waiting for receipts of the current transactions to complete"
+            );
         }
         let processing_options = BlockProcessingOptions {
             height: message.block.header.height,
@@ -282,17 +290,17 @@ pub async fn run_indexer<
                 }
             }
         }
-        if !prefetch_range.contains(&message.block.header.height) {
-            if let Some(post_processor) = &post_processor {
-                post_processor
-                    .after_block(
-                        &message,
-                        processing_options,
-                        postfetch_range.contains(&message.block.header.height),
-                    )
-                    .await
-                    .map_err(InIndexerError::PostProcessor)?;
-            }
+        if !prefetch_range.contains(&message.block.header.height)
+            && let Some(post_processor) = &post_processor
+        {
+            post_processor
+                .after_block(
+                    &message,
+                    processing_options,
+                    postfetch_range.contains(&message.block.header.height),
+                )
+                .await
+                .map_err(InIndexerError::PostProcessor)?;
         }
         if cancellation_token.is_cancelled() {
             log::info!(

@@ -1,7 +1,7 @@
 [package]
 name = "inindexer"
-version = "8.0.0"
-edition = "2021"
+version = "9.0.0"
+edition = "2024"
 readme = "README.md"
 repository = "https://github.com/INTEARnear/inindexer"
 license = "MIT OR Apache-2.0"
@@ -13,15 +13,21 @@ async-trait = "0.1"
 log = "0.4"
 near-indexer-primitives = "0.37.1"
 serde_json = "1"
-tokio-stream = "0.1"
-tokio = { version = "1.37", features = ["signal", "fs", "rt", "sync"] }
-reqwest = "0.12"
+tokio = { version = "1.53", features = ["signal", "fs", "rt", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 semver = "1"
 futures = "0.3"
 tokio-util = "0.7"
-fastnear-neardata-fetcher = "0.37"
-fastnear-primitives = "0.37"
+fastnear-neardata-fetcher = { version = "0.37", optional = true }
+fastnear-primitives = { version = "0.37", optional = true }
+reqwest = { version = "0.13", optional = true }
+tar = { version = "0.4", optional = true }
+zstd = { version = "0.14", optional = true }
+
+[features]
+neardata = ["dep:fastnear-neardata-fetcher", "dep:fastnear-primitives"]
+neardata-old = ["dep:reqwest"]
+teardata = ["dep:reqwest", "reqwest/zstd", "reqwest/gzip", "dep:tar", "dep:zstd"]
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "time"] }
@@ -31,11 +37,14 @@ temp-file = "0.1.8"
 [[example]]
 name = "watch-the-slime"
 path = "examples/watch_the_slime.rs"
+required-features = ["neardata-old"]
 
 [[example]]
 name = "ft-transfers"
 path = "examples/ft_transfers.rs"
+required-features = ["teardata"]
 
 [[example]]
 name = "download"
 path = "examples/download.rs"
+required-features = ["neardata"]

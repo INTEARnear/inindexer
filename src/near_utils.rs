@@ -3,12 +3,12 @@ use std::ops::Deref;
 
 pub use near_indexer_primitives::near_primitives::serialize::dec_format;
 use near_indexer_primitives::{
+    IndexerExecutionOutcomeWithReceipt,
     types::{AccountId, BlockHeight},
     views::ExecutionStatusView,
-    IndexerExecutionOutcomeWithReceipt,
 };
 use semver::Version;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 pub const MAINNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 9820210;
 pub const TESTNET_GENESIS_BLOCK_HEIGHT: BlockHeight = 100000000;
