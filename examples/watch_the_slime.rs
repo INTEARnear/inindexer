@@ -2,10 +2,10 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    BlockRange, CompleteTransaction, Indexer, IndexerOptions, neardata_old::OldNeardataProvider,
+    BlockRange, Indexer, IndexerOptions, StreamerMessage, neardata_old::OldNeardataProvider,
     run_indexer,
 };
-use near_indexer_primitives::{StreamerMessage, types::AccountId};
+use near_indexer_primitives::{IndexerTransactionWithOutcome, types::AccountId};
 
 struct WatcherIndexer {
     tracked_account: AccountId,
@@ -15,16 +15,16 @@ struct WatcherIndexer {
 impl Indexer for WatcherIndexer {
     type Error = String;
 
-    async fn on_transaction(
+    async fn process_transaction(
         &mut self,
-        transaction: &CompleteTransaction,
+        transaction: &IndexerTransactionWithOutcome,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         // Note: this is a simple example, which doesn't handle DELEGATE actions
-        if transaction.transaction.transaction.signer_id == self.tracked_account {
+        if transaction.transaction.signer_id == self.tracked_account {
             log::info!(
                 "Found transaction: https://pikespeak.ai/transaction-viewer/{}",
-                transaction.transaction.transaction.hash
+                transaction.transaction.hash
             );
         }
         Ok(())

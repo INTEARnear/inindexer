@@ -1,11 +1,9 @@
 use std::{any::Any, fmt::Debug};
 
-use crate::{CompleteTransaction, IncompleteTransaction, Indexer, TransactionReceipt};
+use crate::{Indexer, IndexerExecutionOutcomeWithReceipt, StreamerMessage};
 
 use async_trait::async_trait;
-use near_indexer_primitives::{
-    IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
-};
+use near_indexer_primitives::IndexerTransactionWithOutcome;
 
 /// A multi-indexer that can be used to combine multiple indexers into one.
 ///
@@ -16,7 +14,7 @@ use near_indexer_primitives::{
 /// # Example
 ///
 /// ```rust
-/// # use inindexer::near_indexer_primitives::StreamerMessage;
+/// # use inindexer::StreamerMessage;
 /// # use inindexer::Indexer;
 /// # use async_trait::async_trait;
 /// use inindexer::multiindexer::{MultiIndexer, ChainIndexers};
@@ -99,29 +97,6 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
         Ok(())
     }
 
-    async fn on_transaction(
-        &mut self,
-        transaction: &CompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        for indexer in self.indexers_mut() {
-            indexer.on_transaction(transaction, block).await?;
-        }
-        Ok(())
-    }
-
-    async fn on_receipt(
-        &mut self,
-        receipt: &TransactionReceipt,
-        tx: &IncompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        for indexer in self.indexers_mut() {
-            indexer.on_receipt(receipt, tx, block).await?;
-        }
-        Ok(())
-    }
-
     async fn process_block_end(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
         for indexer in self.indexers_mut() {
             indexer.process_block_end(block).await?;
@@ -165,7 +140,7 @@ impl<E: Debug + Send + Sync + 'static, I: Indexer<Error = E>> ChainIndexers<E> f
 /// # Example
 ///
 /// ```rust
-/// # use inindexer::near_indexer_primitives::StreamerMessage;
+/// # use inindexer::StreamerMessage;
 /// # use inindexer::Indexer;
 /// # use async_trait::async_trait;
 /// use inindexer::multiindexer::MapError;
@@ -243,29 +218,6 @@ impl<
     ) -> Result<(), Self::Error> {
         self.indexer
             .process_receipt(receipt, block)
-            .await
-            .map_err(&self.map)
-    }
-
-    async fn on_transaction(
-        &mut self,
-        transaction: &CompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        self.indexer
-            .on_transaction(transaction, block)
-            .await
-            .map_err(&self.map)
-    }
-
-    async fn on_receipt(
-        &mut self,
-        receipt: &TransactionReceipt,
-        tx: &IncompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        self.indexer
-            .on_receipt(receipt, tx, block)
             .await
             .map_err(&self.map)
     }
@@ -370,41 +322,6 @@ impl<E: Debug + Send + Sync + 'static> Indexer for ParallelMultiIndexer<E> {
             .indexers_mut()
             .iter_mut()
             .map(|indexer| indexer.process_receipt(receipt, block))
-            .collect();
-
-        for result in futures::future::join_all(futures).await {
-            result?;
-        }
-        Ok(())
-    }
-
-    async fn on_transaction(
-        &mut self,
-        transaction: &CompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        let futures: Vec<_> = self
-            .indexers_mut()
-            .iter_mut()
-            .map(|indexer| indexer.on_transaction(transaction, block))
-            .collect();
-
-        for result in futures::future::join_all(futures).await {
-            result?;
-        }
-        Ok(())
-    }
-
-    async fn on_receipt(
-        &mut self,
-        receipt: &TransactionReceipt,
-        tx: &IncompleteTransaction,
-        block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        let futures: Vec<_> = self
-            .indexers_mut()
-            .iter_mut()
-            .map(|indexer| indexer.on_receipt(receipt, tx, block))
             .collect();
 
         for result in futures::future::join_all(futures).await {

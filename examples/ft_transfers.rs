@@ -1,16 +1,15 @@
 //! This example demonstrates how to use more features in IndexerOptions,
 //! and build an indexer that watches for specific on-chain events.
 
-use std::path::PathBuf;
-
 use async_trait::async_trait;
 use inindexer::{
-    AutoContinue, BlockRange, Indexer, IndexerOptions,
-    near_utils::{EventLogData, FtTransferLog, MAINNET_GENESIS_BLOCK_HEIGHT},
+    AutoContinue, BlockRange, Checkpoint, Indexer, IndexerExecutionOutcomeWithReceipt,
+    IndexerOptions, StreamerMessage,
+    near_utils::{EventLogData, FtTransferLog},
     run_indexer,
     teardata::TeardataProvider,
 };
-use near_indexer_primitives::{StreamerMessage, views::ExecutionStatusView};
+use near_indexer_primitives::views::ExecutionStatusView;
 
 struct FtTransferIndexer;
 
@@ -22,7 +21,7 @@ impl Indexer for FtTransferIndexer {
     // it doesn't matter, as long as the transfer was successful
     async fn process_receipt(
         &mut self,
-        receipt: &near_indexer_primitives::IndexerExecutionOutcomeWithReceipt,
+        receipt: &IndexerExecutionOutcomeWithReceipt,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         if let ExecutionStatusView::Failure(_) = receipt.execution_outcome.outcome.status {
@@ -72,13 +71,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockRange::AutoContinue(AutoContinue {
-                save_location: Box::new(PathBuf::from("example_ft_trasnfers_last_block.txt")),
-                start_height_if_does_not_exist: 139770436,
+                checkpoint: Checkpoint::File("example_ft_trasnfers_last_block.txt".into()),
+                start_height_if_none_processed: 139770436,
                 end: inindexer::AutoContinueEnd::Infinite,
             }),
             stop_on_error: false,
-            preprocess_transactions: None,
-            genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
             ctrl_c_handler: true,
         },
     )

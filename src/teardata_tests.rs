@@ -3,10 +3,12 @@
 use std::ops::Range;
 
 use async_trait::async_trait;
-use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
+use near_indexer_primitives::types::BlockHeight;
 use serde::Deserialize;
 
-use crate::{BlockRange, Indexer, IndexerOptions, run_indexer, teardata::TeardataProvider};
+use crate::{
+    BlockRange, Indexer, IndexerOptions, StreamerMessage, run_indexer, teardata::TeardataProvider,
+};
 
 #[derive(Deserialize)]
 struct Status {

@@ -2,12 +2,12 @@ use std::{fmt::Display, io::Read, time::Duration};
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
+use near_indexer_primitives::types::BlockHeight;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use crate::MessageStreamer;
+use crate::{MessageStreamer, StreamerMessage};
 
 const BLOCKS_PER_ARCHIVE: BlockHeight = 10;
 const ARCHIVE_SYNC_THRESHOLD: BlockHeight = BLOCKS_PER_ARCHIVE * 2;

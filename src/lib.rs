@@ -13,17 +13,21 @@ pub mod teardata;
 #[cfg(all(test, feature = "teardata"))]
 mod teardata_tests;
 
-use std::{collections::HashMap, fmt::Debug, ops::Range, path::PathBuf};
+use std::{
+    fmt::Debug,
+    io,
+    path::{Path, PathBuf},
+};
 
 use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
 pub use near_indexer_primitives;
 use near_indexer_primitives::{
-    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
-    types::{BlockHeight, BlockHeightDelta},
-    views::ExecutionStatusView,
+    CryptoHash, IndexerChunkView, IndexerTransactionWithOutcome,
+    types::{BlockHeight, BlockHeightDelta, ShardId},
+    views::{BlockView, ExecutionOutcomeWithIdView, ReceiptView, StateChangeWithCauseView},
 };
-use near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, is_receipt_successful};
+use near_utils::MAINNET_GENESIS_BLOCK_HEIGHT;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -54,7 +58,7 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Runs for every transaction when it starts (not when it's complete, see `on_transaction`).
+    /// Runs for every transaction when it starts.
     async fn process_transaction(
         &mut self,
         _transaction: &IndexerTransactionWithOutcome,
@@ -72,29 +76,12 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Runs for every transaction, when it's fully complete and all its receipts are executed.
-    /// Requires preprocessing enabled in `IndexerOptions`.
-    async fn on_transaction(
-        &mut self,
-        _transaction: &CompleteTransaction,
-        _block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Runs for every receipt, when it's executed. Also contains information about the parent
-    /// transaction and previous receipts. Requires preprocessing enabled in `IndexerOptions`.
-    async fn on_receipt(
-        &mut self,
-        _receipt: &TransactionReceipt,
-        _transaction: &IncompleteTransaction,
-        _block: &StreamerMessage,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Runs for every block, after all on_transaction, on_receipt, and other callbacks are
-    /// called.
+    /// Runs for every block, after all other callbacks are called.
+    ///
+    /// Indexers that resume with [`BlockRange::AutoContinue`] save the block's height as the last
+    /// processed one in the same atomic write as the block's own data, usually the database
+    /// transaction committed here. Saved apart from the data, a crash between the two writes
+    /// skips the block or processes it twice.
     async fn process_block_end(&mut self, _block: &StreamerMessage) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -108,63 +95,25 @@ pub trait Indexer: Send + Sync + 'static {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CompleteTransaction {
-    pub transaction: IndexerTransactionWithOutcome,
-    pub receipts: Vec<TransactionReceipt>,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StreamerMessage {
+    pub block: BlockView,
+    pub shards: Vec<IndexerShard>,
 }
 
-impl CompleteTransaction {
-    pub fn all_receipts_successful(&self) -> bool {
-        self.receipts.iter().all(|receipt| {
-            matches!(
-                receipt.receipt.execution_outcome.outcome.status,
-                ExecutionStatusView::SuccessReceiptId(_) | ExecutionStatusView::SuccessValue(_)
-            )
-        })
-    }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerShard {
+    pub shard_id: ShardId,
+    pub chunk: Option<IndexerChunkView>,
+    pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
+    pub state_changes: Vec<StateChangeWithCauseView>,
 }
 
-#[derive(Debug)]
-pub struct IncompleteTransaction {
-    pub transaction: IndexerTransactionWithOutcome,
-    /// Receipts with None are created by a transaction or another receipt, but are not yet available.
-    ///
-    /// This map does not contain all receipts of a transaction, since this on_receipt is called
-    /// before the transaction is fully complete, so there's no way to know how many receipts there will be.
-    ///
-    /// During on_receipt, the receipt you're processing is None in this map.
-    pub receipts: HashMap<CryptoHash, Option<TransactionReceipt>>,
-}
-
-impl TryFrom<&IncompleteTransaction> for CompleteTransaction {
-    type Error = &'static str;
-
-    fn try_from(value: &IncompleteTransaction) -> Result<Self, Self::Error> {
-        let receipts = value
-            .receipts
-            .values()
-            .map(|receipt| receipt.clone().ok_or("Missing receipt"))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
-            transaction: value.transaction.clone(),
-            receipts,
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TransactionReceipt {
-    pub receipt: IndexerExecutionOutcomeWithReceipt,
-    pub block_height: BlockHeight,
-    #[serde(with = "near_utils::dec_format")]
-    pub block_timestamp_nanosec: u128,
-}
-
-impl TransactionReceipt {
-    pub fn is_successful(&self, if_unknown: bool) -> bool {
-        is_receipt_successful(&self.receipt).unwrap_or(if_unknown)
-    }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexerExecutionOutcomeWithReceipt {
+    pub execution_outcome: ExecutionOutcomeWithIdView,
+    pub receipt: ReceiptView,
+    pub tx_hash: CryptoHash,
 }
 
 pub async fn run_indexer<
@@ -178,51 +127,36 @@ pub async fn run_indexer<
     let mut indexer_state = IndexerState::new();
 
     let cancellation_token = CancellationToken::new();
-    let ((start_block_height, end_block_height), post_processor): (
-        _,
-        Option<Box<dyn PostProcessor>>,
-    ) = match options.range {
-        BlockRange::Range {
-            start_inclusive: start,
-            end_exclusive: end,
-        } => ((start, end), None),
-        BlockRange::AutoContinue(auto_continue) => {
-            let range = auto_continue.range().await;
-            (
-                (
-                    range.start,
-                    if range.end == BlockHeight::MAX {
-                        None
-                    } else {
-                        Some(range.end)
-                    },
-                ),
-                Some(Box::new(auto_continue)),
-            )
-        }
-    };
-
-    let (prefetch_blocks, postfetch_blocks) =
-        if let Some(preprocess_transactions) = &options.preprocess_transactions {
-            (
-                preprocess_transactions.prefetch_blocks,
-                preprocess_transactions.postfetch_blocks,
-            )
-        } else {
-            (0, 0)
+    let (start_block_height, end_block_height, mut expected_prev_height, checkpoint_file) =
+        match options.range {
+            BlockRange::Range {
+                start_inclusive,
+                end_exclusive,
+            } => (start_inclusive, end_exclusive, None, None),
+            BlockRange::AutoContinue(auto_continue) => {
+                let (last_processed_block, checkpoint_file) = match auto_continue.checkpoint {
+                    Checkpoint::SavedByIndexer {
+                        last_processed_block,
+                    } => (last_processed_block, None),
+                    Checkpoint::File(path) => (
+                        load_checkpoint_file(&path)
+                            .await
+                            .map_err(InIndexerError::Checkpoint)?,
+                        Some(path),
+                    ),
+                };
+                let start = last_processed_block
+                    .map_or(auto_continue.start_height_if_none_processed, |height| {
+                        height + 1
+                    });
+                let end = match auto_continue.end {
+                    AutoContinueEnd::Height(height) => Some(height),
+                    AutoContinueEnd::Count(count) => Some(start + count),
+                    AutoContinueEnd::Infinite => None,
+                };
+                (start, end, last_processed_block, checkpoint_file)
+            }
         };
-
-    let prefetch_range = ((start_block_height - prefetch_blocks as BlockHeightDelta)
-        .max(options.genesis_block_height))..start_block_height;
-    let postfetch_range = end_block_height.unwrap_or(BlockHeight::MAX)
-        ..(end_block_height.map_or(BlockHeight::MAX, |x| {
-            x + postfetch_blocks as BlockHeightDelta
-        }));
-
-    let start_block_height_with_prefetch =
-        start_block_height.saturating_sub(prefetch_blocks as BlockHeightDelta);
-    let end_block_height_with_postfetch =
-        end_block_height.map(|x| x + postfetch_blocks as BlockHeightDelta);
 
     if options.ctrl_c_handler {
         let cancellation_token_2 = cancellation_token.clone();
@@ -232,51 +166,27 @@ pub async fn run_indexer<
         });
     }
 
-    if !prefetch_range.is_empty() {
-        log::info!(
-            "Prefetching transactions from blocks {} to {}. Only transactions that are completed from {} onwards will be processed",
-            prefetch_range.start,
-            prefetch_range.end - 1,
-            start_block_height
-        );
-    }
-
     let (handle, mut streamer) = streamer
-        .stream(
-            start_block_height_with_prefetch,
-            end_block_height_with_postfetch,
-        )
+        .stream(start_block_height, end_block_height)
         .await
         .map_err(InIndexerError::Streamer)?;
 
-    indexer_state.on_start(indexer);
-
-    let mut has_sent_postfetch_message = false;
     while let Some(message) = streamer.recv().await {
-        if postfetch_range.contains(&message.block.header.height) && !has_sent_postfetch_message {
-            has_sent_postfetch_message = true;
-            log::info!(
-                "Stopped processing new transactions, waiting for receipts of the current transactions to complete"
-            );
-        }
-        let processing_options = BlockProcessingOptions {
-            height: message.block.header.height,
-            preprocess: options.preprocess_transactions.is_some(),
-            preprocess_new_transactions: !postfetch_range.contains(&message.block.header.height),
-            handle_raw_events: !postfetch_range.contains(&message.block.header.height)
-                && !prefetch_range.contains(&message.block.header.height),
-            handle_preprocessed_transactions_by_indexer: !prefetch_range
-                .contains(&message.block.header.height),
-        };
-
-        if message.block.header.height == start_block_height {
-            log::info!("Prefetched all blocks successfully, starting to process new blocks");
-        }
-
-        match indexer_state
-            .process_block(indexer, &message, &processing_options)
-            .await
+        let header = &message.block.header;
+        // Headers from before prev_height was added to them can't be checked
+        if let (Some(expected_prev_height), Some(prev_height)) =
+            (expected_prev_height, header.prev_height)
+            && prev_height != expected_prev_height
         {
+            return Err(InIndexerError::Discontinuity {
+                block_height: header.height,
+                prev_height,
+                expected_prev_height,
+            });
+        }
+        expected_prev_height = Some(header.height);
+
+        match indexer_state.process_block(indexer, &message).await {
             Ok(()) => {}
             Err(e) => {
                 log::error!(
@@ -290,17 +200,10 @@ pub async fn run_indexer<
                 }
             }
         }
-        if !prefetch_range.contains(&message.block.header.height)
-            && let Some(post_processor) = &post_processor
-        {
-            post_processor
-                .after_block(
-                    &message,
-                    processing_options,
-                    postfetch_range.contains(&message.block.header.height),
-                )
+        if let Some(path) = &checkpoint_file {
+            save_checkpoint_file(path, message.block.header.height)
                 .await
-                .map_err(InIndexerError::PostProcessor)?;
+                .map_err(InIndexerError::Checkpoint)?;
         }
         if cancellation_token.is_cancelled() {
             log::info!(
@@ -325,20 +228,13 @@ pub struct IndexerOptions {
     pub stop_on_error: bool,
     /// Blocks range to process. If None, the indexer will process all blocks from the streamer.
     pub range: BlockRange,
-    /// If enabled, the indexer will preprocess transactions and receipts, so you can access them in the
-    /// [`Indexer::on_transaction`] and [`Indexer::on_receipt`] methods. If you don't need this, set to
-    /// false to save some memory. If disabled, you can still access transactions and receipts in the
-    /// [`Indexer::process_transaction`] and [`Indexer::process_receipt`] methods, but `on_transaction`
-    /// and `on_receipt` will not be called.
-    pub preprocess_transactions: Option<PreprocessTransactionsSettings>,
-    /// Genesis block height, used to limit [`PreprocessTransactionsSettings::prefetch_blocks`] so the indexer
-    /// doesn't try to query blocks lower than genesis. Default is [`MAINNET_GENESIS_BLOCK_HEIGHT`]
-    pub genesis_block_height: BlockHeight,
-    /// If true, the indexer will gracefully stop on Ctrl+C signal, avoiding double processing of transactions.
-    /// Transactions that have started, but not finished processing, will be processed again on the next run.
+    /// If true, the indexer will gracefully stop on Ctrl+C signal, after the block it's processing.
     pub ctrl_c_handler: bool,
 }
 
+/// Every block's `prev_height` is checked against the height of the block streamed before it, so a
+/// streamer that skips a block stops the indexer with [`InIndexerError::Discontinuity`].
+#[derive(Debug)]
 pub enum BlockRange {
     /// Consecutive range of blocks to process. The range can be finite or infinite. If it's finite,
     /// the indexer will stop once the iterator is exhausted.
@@ -346,47 +242,9 @@ pub enum BlockRange {
         start_inclusive: BlockHeight,
         end_exclusive: Option<BlockHeight>,
     },
-    /// If set, the indexer will save the last processed block height to the file and continue from it
-    /// on the next run. If the indexer was forcibly stopped in the middle of processing a block, it will
-    /// start from the beginning of the block, potentially processing some transactions twice.
-    /// Doesn't work with [`postfetch_blocks`](PreprocessTransactionsSettings::postfetch_blocks) option
-    /// because this stream is infinite.
+    /// Continues right after the last processed block of the [`Checkpoint`]. The first block's
+    /// `prev_height` must be that block.
     AutoContinue(AutoContinue),
-}
-
-impl Debug for BlockRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BlockRange::Range {
-                start_inclusive: start,
-                end_exclusive: end,
-            } => write!(f, "Range {{ start: {}, end: {:?} }}", start, end),
-            BlockRange::AutoContinue(_) => write!(f, "AutoContinue"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct PreprocessTransactionsSettings {
-    /// When transactions are preprocessed, the indexer needs to get a transaction and wait for all receipts
-    /// to be available. In case some transactions were received during the previous run, and they are not available
-    /// now, this parameter sets how many blocks the indexer will prefetch to get all previous transactions.
-    /// Default is 100.
-    pub prefetch_blocks: usize,
-    /// If your block iterator is finite, you can set this parameter to load some blocks after the stream is
-    /// exhausted, so that if a transaction was initiated within the iterable range, but receipts are available later,
-    /// the indexer will still process them, but it won't touch transaction that were initiated after the last block
-    /// in the iterable range. Default is 100.
-    pub postfetch_blocks: usize,
-}
-
-impl Default for PreprocessTransactionsSettings {
-    fn default() -> Self {
-        Self {
-            prefetch_blocks: 100,
-            postfetch_blocks: 100,
-        }
-    }
 }
 
 impl IndexerOptions {
@@ -394,25 +252,37 @@ impl IndexerOptions {
         Self {
             stop_on_error: false,
             range,
-            preprocess_transactions: None,
-            genesis_block_height: MAINNET_GENESIS_BLOCK_HEIGHT,
             ctrl_c_handler: true,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct AutoContinue {
-    /// Path to the file where the last processed block height will be saved. It's a simple text file with
-    /// a single number.
-    pub save_location: Box<dyn SaveLocation>,
-    /// If the save file does not exist, the indexer will start from this height. Default is the mainnet
-    /// genesis block height.
-    pub start_height_if_does_not_exist: BlockHeight,
+    pub checkpoint: Checkpoint,
+    /// Where to start when no block was processed yet. Default is the mainnet genesis block height.
+    pub start_height_if_none_processed: BlockHeight,
     /// If set, the indexer will stop processing blocks after this height. If None, the indexer will process
     /// blocks infinitely.
     pub end: AutoContinueEnd,
 }
 
+/// Where the last processed block is kept
+#[derive(Debug)]
+pub enum Checkpoint {
+    /// The indexer saves every block as processed in the same write as the block's own data, see
+    /// [`Indexer::process_block_end`]. This is the last block it saved, `None` if it hasn't
+    /// processed any yet.
+    SavedByIndexer {
+        last_processed_block: Option<BlockHeight>,
+    },
+    /// A text file with the height of the next block to process, written after each block's
+    /// `process_block_end`. A crash between the indexer's own writes and this one makes the block
+    /// run again.
+    File(PathBuf),
+}
+
+#[derive(Debug)]
 pub enum AutoContinueEnd {
     /// The indexer will stop processing blocks after this height.
     Height(BlockHeight),
@@ -422,118 +292,34 @@ pub enum AutoContinueEnd {
     Infinite,
 }
 
-impl AutoContinue {
-    pub async fn get_start_block(&self) -> BlockHeight {
-        self.save_location
-            .load()
-            .await
-            .unwrap_or(self.start_height_if_does_not_exist)
-    }
-
-    pub async fn range(&self) -> Range<BlockHeight> {
-        let start = self.get_start_block().await;
-        let end = match self.end {
-            AutoContinueEnd::Height(height) => height,
-            AutoContinueEnd::Count(count) => start + count,
-            AutoContinueEnd::Infinite => BlockHeight::MAX,
-        };
-        start..end
-    }
-}
-
 impl Default for AutoContinue {
     fn default() -> Self {
         Self {
-            save_location: Box::new(PathBuf::from("last-processed-block.txt")),
-            start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
+            checkpoint: Checkpoint::File(PathBuf::from("last-processed-block.txt")),
+            start_height_if_none_processed: MAINNET_GENESIS_BLOCK_HEIGHT,
             end: AutoContinueEnd::Infinite,
         }
     }
 }
 
-#[async_trait]
-pub trait SaveLocation: Send + Sync {
-    async fn load(&self) -> Option<BlockHeight>;
-
-    async fn save(&self, height: BlockHeight) -> Result<(), Box<dyn std::error::Error>>;
+/// The last processed block of a [`Checkpoint::File`], `None` if the file doesn't exist yet
+async fn load_checkpoint_file(path: &Path) -> io::Result<Option<BlockHeight>> {
+    let next_block_height: BlockHeight = match tokio::fs::read_to_string(path).await {
+        Ok(contents) => contents
+            .trim()
+            .parse()
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    };
+    Ok(Some(next_block_height - 1))
 }
 
-#[async_trait]
-impl<T> SaveLocation for T
-where
-    for<'a> &'a T: Into<PathBuf>,
-    T: Send + Sync,
-{
-    async fn load(&self) -> Option<BlockHeight> {
-        let path = self.into();
-        if !tokio::fs::try_exists(&path)
-            .await
-            .expect("Failed to check if save file exists")
-        {
-            return None;
-        }
-        let contents = tokio::fs::read_to_string(&path)
-            .await
-            .expect("Failed to read save file");
-        Some(
-            contents
-                .trim()
-                .replace([',', ' ', '.'], "")
-                .parse()
-                .expect("Failed to parse save file contents"),
-        )
-    }
-
-    async fn save(&self, height: BlockHeight) -> Result<(), Box<dyn std::error::Error>> {
-        tokio::fs::write(self.into(), height.to_string()).await?;
-        Ok(())
-    }
-}
-
-#[async_trait]
-pub trait PostProcessor: Send {
-    async fn after_block(
-        &self,
-        block: &StreamerMessage,
-        options: BlockProcessingOptions,
-        stopping: bool,
-    ) -> Result<(), Box<dyn std::error::Error>>;
-}
-
-#[async_trait]
-impl PostProcessor for AutoContinue {
-    async fn after_block(
-        &self,
-        block: &StreamerMessage,
-        _options: BlockProcessingOptions,
-        stopping: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // This check is not actually needed, since AutoContinue is an infinite stream, but just in case
-        // someone decides to use this as a postprocessor with a finite stream, it won't save postfetch
-        // blocks
-        if !stopping {
-            // +1 because processing will start from the next block inclusive
-            self.save_location.save(block.block.header.height + 1).await
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct BlockProcessingOptions {
-    /// Block height to process.
-    pub height: BlockHeight,
-    /// If true, the indexer will preprocess this transaction. Only works if
-    /// [`IndexerOptions::preprocess_transactions`] is enabled.
-    pub preprocess: bool,
-    /// If [`preprocess`](BlockProcessingOptions::preprocess) is true, but this is false, the indexer will no
-    /// longer insert new transactions into the indexer state, but will still check if new receipts belong to
-    /// a transaction that was saved while this flag was `true`.
-    pub preprocess_new_transactions: bool,
-    /// If true, the indexer will handle this block (methods `process_block`, `process_transaction`, `process_receipt`)
-    pub handle_raw_events: bool,
-    /// If true, the indexer will handle preprocessed transactions that completed this block (methods `on_transaction`,
-    /// `on_receipt`)
-    pub handle_preprocessed_transactions_by_indexer: bool,
+/// Written to a temporary file that is renamed over the checkpoint, so a crash mid-write can't
+/// leave it empty
+async fn save_checkpoint_file(path: &Path, last_processed_block: BlockHeight) -> io::Result<()> {
+    let mut temporary_path = path.as_os_str().to_owned();
+    temporary_path.push(".tmp");
+    tokio::fs::write(&temporary_path, (last_processed_block + 1).to_string()).await?;
+    tokio::fs::rename(&temporary_path, path).await
 }

@@ -7,9 +7,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
+use near_indexer_primitives::types::BlockHeight;
 
-use crate::MessageStreamer;
+use crate::{MessageStreamer, StreamerMessage};
 
 const DEFAULT_CHANNEL_BUFFER_SIZE: usize = 1000;
 

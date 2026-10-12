@@ -6,16 +6,13 @@ use std::{
 use async_trait::async_trait;
 use fastnear_neardata_fetcher::{FetcherConfig, fetcher};
 use fastnear_primitives::types::ChainId;
-use near_indexer_primitives::{
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, StreamerMessage,
-    types::{BlockHeight, Finality},
-};
+use near_indexer_primitives::types::{BlockHeight, Finality};
 use tokio::{
     sync::{self, mpsc},
     task::JoinHandle,
 };
 
-use crate::MessageStreamer;
+use crate::{IndexerExecutionOutcomeWithReceipt, IndexerShard, MessageStreamer, StreamerMessage};
 
 pub struct NeardataProvider {
     config: FetcherConfig,
@@ -129,6 +126,7 @@ impl MessageStreamer for NeardataProvider {
                                 .map(|receipt| IndexerExecutionOutcomeWithReceipt {
                                     execution_outcome: receipt.execution_outcome,
                                     receipt: receipt.receipt,
+                                    tx_hash: receipt.tx_hash.unwrap(),
                                 })
                                 .collect(),
                             state_changes: shard.state_changes,

@@ -2,9 +2,9 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use near_indexer_primitives::{StreamerMessage, types::BlockHeight};
+use near_indexer_primitives::types::BlockHeight;
 
-use crate::message_provider::MessageProvider;
+use crate::{StreamerMessage, message_provider::MessageProvider};
 
 pub struct OldNeardataProvider {
     base_url: String,

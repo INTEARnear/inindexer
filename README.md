@@ -11,13 +11,16 @@ InIndexer is a NEAR indexer framework.
   - `teardata`: `TeardataProvider`, same as neardata but by Intear.
 
   You can add your own sources by implementing `MessageStreamer` or `message_provider::MessageProvider` trait.
-- Simple indexer interface: you only need to implement `Indexer` trait and handle receipts, blocks,
-  transactions, or transactions with all receipts included, at a cost of some preprocessing overhead (around 1-2ms
-  in release mode with 80-100 TPS on Slime's PC, this can be disabled in `IndexerOptions::preprocess_transactions`).
+- Simple indexer interface: you only need to implement `Indexer` trait and handle receipts, blocks, or
+  transactions. Every receipt comes with the hash of its transaction (`tx_hash`), taken from neardata / teardata.
 - Retries, performance warnings, skipped blocks handling, and other features are built-in, so you can focus on
   your indexer logic.
-- Auto-Continue: the indexer will save the last processed block height to the file and continue from it
-  on the next run. Includes a Ctrl+C handler for graceful shutdown.
+- Auto-Continue: `BlockRange::AutoContinue` continues right after the last processed block. Either the indexer
+  saves it in the same write as its data (`Checkpoint::SavedByIndexer`, e.g. in the database transaction it
+  commits in `process_block_end`), or inindexer saves it in a file after each block (`Checkpoint::File`).
+  Includes a Ctrl+C handler for graceful shutdown.
+- Skipped block detection: every block's `prev_height` is checked against the block before it, so a gap in the
+  stream stops the indexer instead of silently losing data.
 - Some helper functions and types for working with logs, balances, and other commonly used functionality in
   `near_utils`.
 

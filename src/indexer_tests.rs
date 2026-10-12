@@ -1,19 +1,21 @@
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::{collections::HashMap, ops::Range, path::PathBuf};
 
-use crate::neardata::NeardataProvider;
+use crate::neardata::{NeardataError, NeardataProvider};
 use crate::{
-    AutoContinue, AutoContinueEnd, BlockRange, CompleteTransaction, IndexerOptions,
-    PreprocessTransactionsSettings, message_provider::ParallelProviderStreamer,
-    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT, neardata_old::OldNeardataProvider,
+    AutoContinue, AutoContinueEnd, BlockRange, Checkpoint, IndexerExecutionOutcomeWithReceipt,
+    IndexerOptions, MessageStreamer, StreamerMessage, indexer_state::InIndexerError,
+    message_provider::ParallelProviderStreamer, near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
+    neardata_old::OldNeardataProvider,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::types::Finality;
 use near_indexer_primitives::{
-    CryptoHash, IndexerExecutionOutcomeWithReceipt, IndexerTransactionWithOutcome, StreamerMessage,
+    CryptoHash,
     types::{BlockHeight, BlockHeightDelta},
 };
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::multiindexer::{ChainIndexers, ParallelJoinIndexers};
 use crate::{Indexer, run_indexer};
@@ -188,194 +190,143 @@ async fn auto_continue() {
         }
     }
 
+    async fn run_once(indexer: &mut TestIndexer, save_path: &std::path::Path) {
+        run_indexer(
+            indexer,
+            NeardataProvider::mainnet(),
+            IndexerOptions::default_with_range(BlockRange::AutoContinue(AutoContinue {
+                checkpoint: Checkpoint::File(save_path.to_path_buf()),
+                start_height_if_none_processed: MAINNET_GENESIS_BLOCK_HEIGHT,
+                end: AutoContinueEnd::Count(20),
+            })),
+        )
+        .await
+        .unwrap();
+    }
+
+    let save_path = std::env::temp_dir().join(format!(
+        "inindexer-auto-continue-{}.txt",
+        std::process::id()
+    ));
+    // TestIndexer fails on a block that isn't after the last one, so a second run that repeats
+    // blocks fails too
     let mut indexer = TestIndexer::default();
-    let save_file = temp_file::with_contents(MAINNET_GENESIS_BLOCK_HEIGHT.to_string().as_bytes());
-    let save_path = save_file.path();
 
-    run_indexer(
-        &mut indexer,
-        NeardataProvider::mainnet(),
-        IndexerOptions::default_with_range(BlockRange::AutoContinue(AutoContinue {
-            save_location: Box::new(PathBuf::from(save_path)),
-            start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
-            end: AutoContinueEnd::Count(5),
-        })),
-    )
-    .await
-    .unwrap();
+    run_once(&mut indexer, &save_path).await;
+    let first_run_last_block = indexer.last_block_height;
+    assert!(first_run_last_block >= MAINNET_GENESIS_BLOCK_HEIGHT);
+    assert_eq!(
+        std::fs::read_to_string(&save_path).unwrap(),
+        (first_run_last_block + 1).to_string()
+    );
 
-    assert!(indexer.last_block_height > MAINNET_GENESIS_BLOCK_HEIGHT);
+    run_once(&mut indexer, &save_path).await;
+    assert!(indexer.last_block_height > first_run_last_block);
 
-    let current_height = indexer.last_block_height;
-
-    run_indexer(
-        &mut indexer,
-        NeardataProvider::mainnet(),
-        IndexerOptions::default_with_range(BlockRange::AutoContinue(AutoContinue {
-            save_location: Box::new(PathBuf::from(save_path)),
-            start_height_if_does_not_exist: MAINNET_GENESIS_BLOCK_HEIGHT,
-            end: AutoContinueEnd::Count(5),
-        })),
-    )
-    .await
-    .unwrap();
-
-    assert!(indexer.last_block_height > current_height);
+    std::fs::remove_file(save_path).unwrap();
 }
 
 #[tokio::test]
-async fn prefetch_and_postfetch_dont_process_blocks() {
-    const RANGE: Range<BlockHeight> =
-        (MAINNET_GENESIS_BLOCK_HEIGHT + 20)..(MAINNET_GENESIS_BLOCK_HEIGHT + 20 + 5);
-
-    #[derive(Default)]
+async fn receipts_have_tx_hashes() {
     struct TestIndexer {
-        blocks_processed: BlockHeightDelta,
-        tx_id_to_block_height: HashMap<CryptoHash, BlockHeight>,
-        receipt_id_to_block_height: HashMap<CryptoHash, BlockHeight>,
+        receipts_of_transaction: usize,
     }
 
     #[async_trait]
     impl Indexer for TestIndexer {
         type Error = String;
-
-        async fn process_block(&mut self, block: &StreamerMessage) -> Result<(), Self::Error> {
-            assert!(RANGE.contains(&block.block.header.height));
-            self.blocks_processed += 1;
-            for shard in block.shards.iter() {
-                if let Some(chunk) = shard.chunk.as_ref() {
-                    for transaction in chunk.transactions.iter() {
-                        self.tx_id_to_block_height
-                            .insert(transaction.transaction.hash, block.block.header.height);
-                        for receipt_id in transaction
-                            .outcome
-                            .execution_outcome
-                            .outcome
-                            .receipt_ids
-                            .iter()
-                        {
-                            self.receipt_id_to_block_height
-                                .insert(*receipt_id, block.block.header.height);
-                        }
-                    }
-                }
-                for receipt in shard.receipt_execution_outcomes.iter() {
-                    self.receipt_id_to_block_height
-                        .insert(receipt.receipt.receipt_id, block.block.header.height);
-                }
-            }
-            Ok(())
-        }
-
-        async fn process_transaction(
-            &mut self,
-            transaction: &IndexerTransactionWithOutcome,
-            _block: &StreamerMessage,
-        ) -> Result<(), Self::Error> {
-            let block_height = self
-                .tx_id_to_block_height
-                .get(&transaction.transaction.hash)
-                .unwrap();
-            assert!(RANGE.contains(block_height));
-            Ok(())
-        }
 
         async fn process_receipt(
             &mut self,
             receipt: &IndexerExecutionOutcomeWithReceipt,
             _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
-            let block_height = self
-                .receipt_id_to_block_height
-                .get(&receipt.receipt.receipt_id)
+            let transaction_hash: CryptoHash = "Dvx5xxjrMfKXRUuRBmTizvQf7qA3U2w5Dq7peCFL41tT"
+                .parse()
                 .unwrap();
-            assert!(RANGE.contains(block_height));
-            Ok(())
-        }
-
-        async fn on_transaction(
-            &mut self,
-            transaction: &CompleteTransaction,
-            _block: &StreamerMessage,
-        ) -> Result<(), Self::Error> {
-            let block_height = self
-                .tx_id_to_block_height
-                .get(&transaction.transaction.transaction.hash)
-                .unwrap();
-            assert!(RANGE.contains(block_height));
-            Ok(())
-        }
-    }
-
-    let mut indexer = TestIndexer::default();
-
-    run_indexer(
-        &mut indexer,
-        NeardataProvider::mainnet(),
-        IndexerOptions {
-            preprocess_transactions: Some(PreprocessTransactionsSettings {
-                prefetch_blocks: 5,
-                postfetch_blocks: 5,
-            }),
-            ..IndexerOptions::default_with_range(BlockRange::Range {
-                start_inclusive: RANGE.start,
-                end_exclusive: Some(RANGE.end),
-            })
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(indexer.blocks_processed, 4)
-}
-
-#[tokio::test]
-async fn preprocessing_should_supply_completed_transaction() {
-    struct TestIndexer {
-        found: bool,
-    }
-
-    #[async_trait]
-    impl Indexer for TestIndexer {
-        type Error = String;
-
-        async fn on_transaction(
-            &mut self,
-            transaction: &CompleteTransaction,
-            _block: &StreamerMessage,
-        ) -> Result<(), Self::Error> {
-            if transaction.transaction.transaction.hash
-                == "Dvx5xxjrMfKXRUuRBmTizvQf7qA3U2w5Dq7peCFL41tT"
-                    .parse()
-                    .unwrap()
-            {
-                assert_eq!(transaction.receipts.len(), 10);
-                self.found = true;
+            if receipt.tx_hash == transaction_hash {
+                self.receipts_of_transaction += 1;
             }
             Ok(())
         }
     }
 
-    let mut indexer = TestIndexer { found: false };
+    let mut indexer = TestIndexer {
+        receipts_of_transaction: 0,
+    };
 
     run_indexer(
         &mut indexer,
         NeardataProvider::mainnet(),
-        IndexerOptions {
-            preprocess_transactions: Some(PreprocessTransactionsSettings {
-                prefetch_blocks: 5,
-                postfetch_blocks: 5,
-            }),
-            ..IndexerOptions::default_with_range(BlockRange::Range {
-                start_inclusive: 116_917_957,
-                end_exclusive: Some(116_917_962),
-            })
-        },
+        IndexerOptions::default_with_range(BlockRange::Range {
+            start_inclusive: 116_917_952,
+            end_exclusive: Some(116_917_967),
+        }),
     )
     .await
     .unwrap();
 
-    assert!(indexer.found);
+    assert_eq!(indexer.receipts_of_transaction, 10);
+}
+
+#[tokio::test]
+async fn skipped_block_stops_indexer() {
+    /// Drops the second block of the stream
+    struct SkippingStreamer(NeardataProvider);
+
+    #[async_trait]
+    impl MessageStreamer for SkippingStreamer {
+        type Error = NeardataError;
+
+        async fn stream(
+            self,
+            first_block_inclusive: BlockHeight,
+            last_block_exclusive: Option<BlockHeight>,
+        ) -> Result<
+            (
+                JoinHandle<Result<(), Self::Error>>,
+                mpsc::Receiver<StreamerMessage>,
+            ),
+            Self::Error,
+        > {
+            let (inner_handle, mut inner_rx) = self
+                .0
+                .stream(first_block_inclusive, last_block_exclusive)
+                .await?;
+            let (tx, rx) = mpsc::channel(100);
+            let handle = tokio::spawn(async move {
+                let mut received = 0;
+                while let Some(message) = inner_rx.recv().await {
+                    received += 1;
+                    if received != 2 && tx.send(message).await.is_err() {
+                        break;
+                    }
+                }
+                drop(inner_rx);
+                inner_handle.await.unwrap()
+            });
+            Ok((handle, rx))
+        }
+    }
+
+    struct TestIndexer;
+
+    #[async_trait]
+    impl Indexer for TestIndexer {
+        type Error = String;
+    }
+
+    let result = run_indexer(
+        &mut TestIndexer,
+        SkippingStreamer(NeardataProvider::mainnet()),
+        IndexerOptions::default_with_range(BlockRange::Range {
+            start_inclusive: 116_917_957,
+            end_exclusive: Some(116_917_967),
+        }),
+    )
+    .await;
+
+    assert!(matches!(result, Err(InIndexerError::Discontinuity { .. })));
 }
 
 #[derive(Debug, Clone)]
