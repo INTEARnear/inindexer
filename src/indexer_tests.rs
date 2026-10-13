@@ -5,9 +5,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use crate::neardata::{NeardataError, NeardataProvider};
 use crate::{
     AutoContinue, AutoContinueEnd, BlockRange, Checkpoint, IndexerExecutionOutcomeWithReceipt,
-    IndexerOptions, MessageStreamer, StreamerMessage, indexer_state::InIndexerError,
-    message_provider::ParallelProviderStreamer, near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
+    IndexerOptions, MessageStreamer, StreamerMessage,
+    indexer_state::InIndexerError,
+    message_provider::ParallelProviderStreamer,
+    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
     neardata_old::OldNeardataProvider,
+    transaction_trees::{TransactionTree, TransactionTrees},
 };
 use async_trait::async_trait;
 use near_indexer_primitives::types::Finality;
@@ -239,6 +242,7 @@ async fn receipts_have_tx_hashes() {
         async fn process_receipt(
             &mut self,
             receipt: &IndexerExecutionOutcomeWithReceipt,
+            _transaction: &TransactionTree,
             _block: &StreamerMessage,
         ) -> Result<(), Self::Error> {
             let transaction_hash: CryptoHash = "Dvx5xxjrMfKXRUuRBmTizvQf7qA3U2w5Dq7peCFL41tT"
@@ -258,10 +262,16 @@ async fn receipts_have_tx_hashes() {
     run_indexer(
         &mut indexer,
         NeardataProvider::mainnet(),
-        IndexerOptions::default_with_range(BlockRange::Range {
-            start_inclusive: 116_917_952,
-            end_exclusive: Some(116_917_967),
-        }),
+        IndexerOptions {
+            transaction_trees: TransactionTrees {
+                warm_up_blocks: 20,
+                ..Default::default()
+            },
+            ..IndexerOptions::default_with_range(BlockRange::Range {
+                start_inclusive: 116_917_952,
+                end_exclusive: Some(116_917_967),
+            })
+        },
     )
     .await
     .unwrap();
@@ -319,10 +329,16 @@ async fn skipped_block_stops_indexer() {
     let result = run_indexer(
         &mut TestIndexer,
         SkippingStreamer(NeardataProvider::mainnet()),
-        IndexerOptions::default_with_range(BlockRange::Range {
-            start_inclusive: 116_917_957,
-            end_exclusive: Some(116_917_967),
-        }),
+        IndexerOptions {
+            transaction_trees: TransactionTrees {
+                warm_up_blocks: 20,
+                ..Default::default()
+            },
+            ..IndexerOptions::default_with_range(BlockRange::Range {
+                start_inclusive: 116_917_957,
+                end_exclusive: Some(116_917_967),
+            })
+        },
     )
     .await;
 

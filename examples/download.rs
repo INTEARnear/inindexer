@@ -15,6 +15,7 @@ use inindexer::{
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
     neardata::NeardataProvider,
     run_indexer,
+    transaction_trees::TransactionTrees,
 };
 use near_indexer_primitives::types::BlockHeight;
 
@@ -98,6 +99,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "testnet" => TESTNET_GENESIS_BLOCK_HEIGHT,
         _ => unreachable!(),
     };
+    // Receipts in the first blocks can be of transactions from blocks before them
+    let warm_up_blocks = match start_block {
+        StartBlockHeight::Genesis => 0,
+        StartBlockHeight::BlockHeight(_) => 100,
+    };
     let range = match (start_block, end_block) {
         (StartBlockHeight::Genesis, EndBlockHeight::Infinity) => BlockRange::Range {
             start_inclusive: start_block_height,
@@ -147,6 +153,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             range,
             stop_on_error: true,
             ctrl_c_handler: true,
+            transaction_trees: TransactionTrees {
+                warm_up_blocks,
+                ..Default::default()
+            },
         },
     )
     .await?;

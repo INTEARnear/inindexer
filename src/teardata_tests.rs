@@ -1,5 +1,3 @@
-//! Runs against a live teardata server: set `TEARDATA_URL`, e.g. `http://127.0.0.1:3000`.
-
 use std::ops::Range;
 
 use async_trait::async_trait;
@@ -8,6 +6,7 @@ use serde::Deserialize;
 
 use crate::{
     BlockRange, Indexer, IndexerOptions, StreamerMessage, run_indexer, teardata::TeardataProvider,
+    transaction_trees::TransactionTrees,
 };
 
 #[derive(Deserialize)]
@@ -45,16 +44,26 @@ async fn status() -> Status {
     get_json("/v0/status").await
 }
 
+/// Blocks before the range that the transaction trees read first, so the stream starts this many
+/// blocks before the range.
+const WARM_UP_BLOCKS: BlockHeight = 100;
+
 /// The provider must yield exactly the heights for which `/v0/block` has a block, in order.
 async fn check_range(range: Range<BlockHeight>) {
     let mut indexer = CollectingIndexer::default();
     run_indexer(
         &mut indexer,
         TeardataProvider::testnet(),
-        IndexerOptions::default_with_range(BlockRange::Range {
-            start_inclusive: range.start,
-            end_exclusive: Some(range.end),
-        }),
+        IndexerOptions {
+            transaction_trees: TransactionTrees {
+                warm_up_blocks: WARM_UP_BLOCKS,
+                ..Default::default()
+            },
+            ..IndexerOptions::default_with_range(BlockRange::Range {
+                start_inclusive: range.start,
+                end_exclusive: Some(range.end),
+            })
+        },
     )
     .await
     .unwrap();
@@ -74,7 +83,7 @@ async fn check_range(range: Range<BlockHeight>) {
 async fn teardata_provider_archives() {
     let first = status().await.first_block_height;
     // Unaligned start and end, so partial archives at both edges are covered.
-    check_range(first + 3..first + 37).await;
+    check_range(first + WARM_UP_BLOCKS + 3..first + WARM_UP_BLOCKS + 37).await;
 }
 
 #[tokio::test]

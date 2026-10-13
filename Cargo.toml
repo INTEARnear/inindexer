@@ -17,6 +17,7 @@ tokio = { version = "1.53", features = ["signal", "fs", "rt", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 semver = "1"
 futures = "0.3"
+redb = "4.3"
 tokio-util = "0.7"
 fastnear-neardata-fetcher = { version = "0.37", optional = true }
 fastnear-primitives = { version = "0.37", optional = true }

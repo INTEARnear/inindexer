@@ -8,6 +8,7 @@ use inindexer::{
     near_utils::{EventLogData, FtTransferLog},
     run_indexer,
     teardata::TeardataProvider,
+    transaction_trees::{TransactionTree, TransactionTrees},
 };
 use near_indexer_primitives::views::ExecutionStatusView;
 
@@ -22,6 +23,7 @@ impl Indexer for FtTransferIndexer {
     async fn process_receipt(
         &mut self,
         receipt: &IndexerExecutionOutcomeWithReceipt,
+        _transaction: &TransactionTree,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         if let ExecutionStatusView::Failure(_) = receipt.execution_outcome.outcome.status {
@@ -77,6 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
             stop_on_error: false,
             ctrl_c_handler: true,
+            // Receipts in the first blocks can be of transactions from blocks before them
+            transaction_trees: TransactionTrees {
+                warm_up_blocks: 100,
+                ..Default::default()
+            },
         },
     )
     .await?;

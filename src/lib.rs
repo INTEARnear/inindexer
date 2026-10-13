@@ -12,6 +12,9 @@ pub mod neardata_old;
 pub mod teardata;
 #[cfg(all(test, feature = "teardata"))]
 mod teardata_tests;
+pub mod transaction_trees;
+#[cfg(all(test, feature = "teardata"))]
+mod transaction_trees_tests;
 
 use std::{
     fmt::Debug,
@@ -23,7 +26,7 @@ use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
 pub use near_indexer_primitives;
 use near_indexer_primitives::{
-    CryptoHash, IndexerChunkView, IndexerTransactionWithOutcome,
+    CryptoHash, IndexerChunkView,
     types::{BlockHeight, BlockHeightDelta, ShardId},
     views::{BlockView, ExecutionOutcomeWithIdView, ReceiptView, StateChangeWithCauseView},
 };
@@ -31,6 +34,9 @@ use near_utils::MAINNET_GENESIS_BLOCK_HEIGHT;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
+use transaction_trees::{
+    TransactionTree, TransactionTreeStore, TransactionTrees, TransactionTreesError,
+};
 
 #[async_trait]
 pub trait MessageStreamer {
@@ -58,19 +64,22 @@ pub trait Indexer: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Runs for every transaction when it starts.
+    /// Runs for every transaction once all the receipts it has led to have been executed, after
+    /// the receipts of the block where the last of them was executed.
     async fn process_transaction(
         &mut self,
-        _transaction: &IndexerTransactionWithOutcome,
+        _transaction: &TransactionTree,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    /// Runs for every receipt, when it's executed.
+    /// Runs for every receipt, when it's executed, with the tree of its transaction, which has
+    /// every receipt of it executed up to the end of this block.
     async fn process_receipt(
         &mut self,
         _receipt: &IndexerExecutionOutcomeWithReceipt,
+        _transaction: &TransactionTree,
         _block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         Ok(())
@@ -166,8 +175,39 @@ pub async fn run_indexer<
         });
     }
 
+    let mut transaction_trees = TransactionTreeStore::open(options.transaction_trees)
+        .await
+        .map_err(InIndexerError::TransactionTrees)?;
+    let first_block_to_read = match transaction_trees.last_block() {
+        Some(last_block) if last_block >= start_block_height => {
+            return Err(InIndexerError::TransactionTrees(
+                TransactionTreesError::Ahead {
+                    last_block,
+                    next_block: start_block_height,
+                },
+            ));
+        }
+        Some(last_block) => {
+            expected_prev_height = Some(last_block);
+            last_block + 1
+        }
+        None => {
+            let warm_up_start =
+                start_block_height.saturating_sub(transaction_trees.options().warm_up_blocks);
+            if warm_up_start < start_block_height {
+                expected_prev_height = None;
+            }
+            warm_up_start
+        }
+    };
+    if first_block_to_read < start_block_height {
+        log::info!(
+            "Reading blocks {first_block_to_read}..{start_block_height} into the transaction trees only"
+        );
+    }
+
     let (handle, mut streamer) = streamer
-        .stream(start_block_height, end_block_height)
+        .stream(first_block_to_read, end_block_height)
         .await
         .map_err(InIndexerError::Streamer)?;
 
@@ -186,25 +226,34 @@ pub async fn run_indexer<
         }
         expected_prev_height = Some(header.height);
 
-        match indexer_state.process_block(indexer, &message).await {
-            Ok(()) => {}
-            Err(e) => {
-                log::error!(
-                    "Error processing block {height}: {e:?}",
-                    height = message.block.header.height
-                );
-                if options.stop_on_error {
-                    break;
-                } else {
-                    continue;
+        transaction_trees.add_block(&message);
+        if message.block.header.height >= start_block_height {
+            match indexer_state
+                .process_block(indexer, &message, &transaction_trees)
+                .await
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    log::error!(
+                        "Error processing block {height}: {e:?}",
+                        height = message.block.header.height
+                    );
+                    if options.stop_on_error {
+                        break;
+                    }
                 }
             }
+            if let Some(path) = &checkpoint_file {
+                save_checkpoint_file(path, message.block.header.height)
+                    .await
+                    .map_err(InIndexerError::Checkpoint)?;
+            }
         }
-        if let Some(path) = &checkpoint_file {
-            save_checkpoint_file(path, message.block.header.height)
-                .await
-                .map_err(InIndexerError::Checkpoint)?;
-        }
+        // After the block is saved as processed, so that the trees are never ahead of the indexer.
+        transaction_trees
+            .commit(message.block.header.height)
+            .await
+            .map_err(InIndexerError::TransactionTrees)?;
         if cancellation_token.is_cancelled() {
             log::info!(
                 "Received Ctrl+C signal, stopping after block {} is fully processed",
@@ -230,6 +279,8 @@ pub struct IndexerOptions {
     pub range: BlockRange,
     /// If true, the indexer will gracefully stop on Ctrl+C signal, after the block it's processing.
     pub ctrl_c_handler: bool,
+    /// Where transactions are kept until all their receipts have been executed.
+    pub transaction_trees: TransactionTrees,
 }
 
 /// Every block's `prev_height` is checked against the height of the block streamed before it, so a
@@ -253,6 +304,7 @@ impl IndexerOptions {
             stop_on_error: false,
             range,
             ctrl_c_handler: true,
+            transaction_trees: TransactionTrees::default(),
         }
     }
 }

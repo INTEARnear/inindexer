@@ -1,9 +1,11 @@
 use std::{any::Any, fmt::Debug};
 
-use crate::{Indexer, IndexerExecutionOutcomeWithReceipt, StreamerMessage};
+use crate::{
+    Indexer, IndexerExecutionOutcomeWithReceipt, StreamerMessage,
+    transaction_trees::TransactionTree,
+};
 
 use async_trait::async_trait;
-use near_indexer_primitives::IndexerTransactionWithOutcome;
 
 /// A multi-indexer that can be used to combine multiple indexers into one.
 ///
@@ -77,7 +79,7 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
 
     async fn process_transaction(
         &mut self,
-        transaction: &IndexerTransactionWithOutcome,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         for indexer in self.indexers_mut() {
@@ -89,10 +91,11 @@ impl<E: Debug + Send + Sync + 'static> Indexer for MultiIndexer<E> {
     async fn process_receipt(
         &mut self,
         receipt: &IndexerExecutionOutcomeWithReceipt,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         for indexer in self.indexers_mut() {
-            indexer.process_receipt(receipt, block).await?;
+            indexer.process_receipt(receipt, transaction, block).await?;
         }
         Ok(())
     }
@@ -202,7 +205,7 @@ impl<
 
     async fn process_transaction(
         &mut self,
-        transaction: &IndexerTransactionWithOutcome,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         self.indexer
@@ -214,10 +217,11 @@ impl<
     async fn process_receipt(
         &mut self,
         receipt: &IndexerExecutionOutcomeWithReceipt,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         self.indexer
-            .process_receipt(receipt, block)
+            .process_receipt(receipt, transaction, block)
             .await
             .map_err(&self.map)
     }
@@ -298,7 +302,7 @@ impl<E: Debug + Send + Sync + 'static> Indexer for ParallelMultiIndexer<E> {
 
     async fn process_transaction(
         &mut self,
-        transaction: &IndexerTransactionWithOutcome,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         let futures: Vec<_> = self
@@ -316,12 +320,13 @@ impl<E: Debug + Send + Sync + 'static> Indexer for ParallelMultiIndexer<E> {
     async fn process_receipt(
         &mut self,
         receipt: &IndexerExecutionOutcomeWithReceipt,
+        transaction: &TransactionTree,
         block: &StreamerMessage,
     ) -> Result<(), Self::Error> {
         let futures: Vec<_> = self
             .indexers_mut()
             .iter_mut()
-            .map(|indexer| indexer.process_receipt(receipt, block))
+            .map(|indexer| indexer.process_receipt(receipt, transaction, block))
             .collect();
 
         for result in futures::future::join_all(futures).await {
