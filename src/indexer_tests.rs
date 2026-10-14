@@ -4,13 +4,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::neardata::{NeardataError, NeardataProvider};
 use crate::{
-    AutoContinue, AutoContinueEnd, BlockRange, Checkpoint, IndexerExecutionOutcomeWithReceipt,
-    IndexerOptions, MessageStreamer, StreamerMessage,
-    indexer_state::InIndexerError,
-    message_provider::ParallelProviderStreamer,
-    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT,
-    neardata_old::OldNeardataProvider,
-    transaction_trees::{TransactionTree, TransactionTrees},
+    BlockRange, IndexerExecutionOutcomeWithReceipt, IndexerOptions, MessageStreamer,
+    StreamerMessage, indexer_state::InIndexerError, message_provider::ParallelProviderStreamer,
+    near_utils::MAINNET_GENESIS_BLOCK_HEIGHT, neardata_old::OldNeardataProvider,
+    transaction_trees::TransactionTree,
 };
 use async_trait::async_trait;
 use near_indexer_primitives::types::Finality;
@@ -175,8 +172,11 @@ async fn parallel_provider_with_correct_order() {
     assert_eq!(indexer.blocks_processed, 4)
 }
 
+#[cfg(feature = "redb")]
 #[tokio::test]
 async fn auto_continue() {
+    use crate::{AutoContinue, AutoContinueEnd, redb_storage::RedbStorage};
+
     #[derive(Default)]
     struct TestIndexer {
         last_block_height: BlockHeight,
@@ -197,18 +197,20 @@ async fn auto_continue() {
         run_indexer(
             indexer,
             NeardataProvider::mainnet(),
-            IndexerOptions::default_with_range(BlockRange::AutoContinue(AutoContinue {
-                checkpoint: Checkpoint::File(save_path.to_path_buf()),
-                start_height_if_none_processed: MAINNET_GENESIS_BLOCK_HEIGHT,
-                end: AutoContinueEnd::Count(20),
-            })),
+            IndexerOptions {
+                storage: Some(Box::new(RedbStorage::new(save_path))),
+                ..IndexerOptions::default_with_range(BlockRange::AutoContinue(AutoContinue {
+                    start_height_if_none_processed: MAINNET_GENESIS_BLOCK_HEIGHT,
+                    end: AutoContinueEnd::Count(20),
+                }))
+            },
         )
         .await
         .unwrap();
     }
 
     let save_path = std::env::temp_dir().join(format!(
-        "inindexer-auto-continue-{}.txt",
+        "inindexer-auto-continue-{}.redb",
         std::process::id()
     ));
     // TestIndexer fails on a block that isn't after the last one, so a second run that repeats
@@ -218,10 +220,6 @@ async fn auto_continue() {
     run_once(&mut indexer, &save_path).await;
     let first_run_last_block = indexer.last_block_height;
     assert!(first_run_last_block >= MAINNET_GENESIS_BLOCK_HEIGHT);
-    assert_eq!(
-        std::fs::read_to_string(&save_path).unwrap(),
-        (first_run_last_block + 1).to_string()
-    );
 
     run_once(&mut indexer, &save_path).await;
     assert!(indexer.last_block_height > first_run_last_block);
@@ -263,10 +261,7 @@ async fn receipts_have_tx_hashes() {
         &mut indexer,
         NeardataProvider::mainnet(),
         IndexerOptions {
-            transaction_trees: TransactionTrees {
-                warm_up_blocks: 20,
-                ..Default::default()
-            },
+            warm_up_blocks: 20,
             ..IndexerOptions::default_with_range(BlockRange::Range {
                 start_inclusive: 116_917_952,
                 end_exclusive: Some(116_917_967),
@@ -330,10 +325,7 @@ async fn skipped_block_stops_indexer() {
         &mut TestIndexer,
         SkippingStreamer(NeardataProvider::mainnet()),
         IndexerOptions {
-            transaction_trees: TransactionTrees {
-                warm_up_blocks: 20,
-                ..Default::default()
-            },
+            warm_up_blocks: 20,
             ..IndexerOptions::default_with_range(BlockRange::Range {
                 start_inclusive: 116_917_957,
                 end_exclusive: Some(116_917_967),

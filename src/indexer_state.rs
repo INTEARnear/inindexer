@@ -5,7 +5,7 @@ use near_indexer_primitives::types::{BlockHeight, BlockHeightDelta};
 
 use crate::{
     Indexer, StreamerMessage,
-    transaction_trees::{TransactionTreeStore, TransactionTreesError},
+    transaction_trees::{IndexerStorageError, TransactionTreeStore},
 };
 
 const BLOCK_PROCESSING_WARNING_THRESHOLD: Duration = Duration::from_millis(300);
@@ -63,7 +63,7 @@ impl IndexerState {
             for receipt in shard.receipt_execution_outcomes.iter() {
                 let transaction = transaction_trees.tree(&receipt.tx_hash).unwrap_or_else(|| {
                     panic!(
-                        "Receipt {} is of transaction {}, which is from before the blocks the transaction trees have read. Increase TransactionTrees::warm_up_blocks",
+                        "Receipt {} is of transaction {}, which is from before the blocks the transaction trees have read. Increase IndexerOptions::warm_up_blocks",
                         receipt.receipt.receipt_id, receipt.tx_hash
                     )
                 });
@@ -93,8 +93,7 @@ impl IndexerState {
 pub enum InIndexerError<E> {
     Streamer(E),
     Join(tokio::task::JoinError),
-    Checkpoint(std::io::Error),
-    TransactionTrees(TransactionTreesError),
+    Storage(IndexerStorageError),
     Discontinuity {
         block_height: BlockHeight,
         prev_height: BlockHeight,
@@ -107,8 +106,7 @@ impl<E: Debug> Display for InIndexerError<E> {
         match self {
             InIndexerError::Streamer(e) => write!(f, "Streamer error: {e:?}"),
             InIndexerError::Join(e) => write!(f, "Join error: {e:?}"),
-            InIndexerError::Checkpoint(e) => write!(f, "Checkpoint file error: {e}"),
-            InIndexerError::TransactionTrees(e) => write!(f, "Transaction trees error: {e}"),
+            InIndexerError::Storage(e) => write!(f, "Storage error: {e}"),
             InIndexerError::Discontinuity {
                 block_height,
                 prev_height,

@@ -2,10 +2,8 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    BlockRange, Indexer, IndexerOptions, StreamerMessage,
-    neardata_old::OldNeardataProvider,
-    run_indexer,
-    transaction_trees::{TransactionTree, TransactionTrees},
+    BlockRange, Indexer, IndexerOptions, StreamerMessage, neardata_old::OldNeardataProvider,
+    run_indexer, transaction_trees::TransactionTree,
 };
 use near_indexer_primitives::types::AccountId;
 
@@ -50,10 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         OldNeardataProvider::mainnet_fastnear(),
         IndexerOptions {
             // Receipts in the first blocks can be of transactions from blocks before them
-            transaction_trees: TransactionTrees {
-                warm_up_blocks: 100,
-                ..Default::default()
-            },
+            warm_up_blocks: 100,
             ..IndexerOptions::default_with_range(BlockRange::Range {
                 start_inclusive: 112_037_807,
                 // A few more blocks for the transactions' receipts to be executed

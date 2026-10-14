@@ -3,12 +3,13 @@
 
 use async_trait::async_trait;
 use inindexer::{
-    AutoContinue, BlockRange, Checkpoint, Indexer, IndexerExecutionOutcomeWithReceipt,
-    IndexerOptions, StreamerMessage,
+    AutoContinue, BlockRange, Indexer, IndexerExecutionOutcomeWithReceipt, IndexerOptions,
+    StreamerMessage,
     near_utils::{EventLogData, FtTransferLog},
+    redb_storage::RedbStorage,
     run_indexer,
     teardata::TeardataProvider,
-    transaction_trees::{TransactionTree, TransactionTrees},
+    transaction_trees::TransactionTree,
 };
 use near_indexer_primitives::views::ExecutionStatusView;
 
@@ -73,17 +74,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         TeardataProvider::mainnet(),
         IndexerOptions {
             range: BlockRange::AutoContinue(AutoContinue {
-                checkpoint: Checkpoint::File("example_ft_trasnfers_last_block.txt".into()),
                 start_height_if_none_processed: 139770436,
                 end: inindexer::AutoContinueEnd::Infinite,
             }),
             stop_on_error: false,
             ctrl_c_handler: true,
             // Receipts in the first blocks can be of transactions from blocks before them
-            transaction_trees: TransactionTrees {
-                warm_up_blocks: 100,
-                ..Default::default()
-            },
+            storage: Some(Box::new(RedbStorage::new("example_ft_transfers.redb"))),
+            warm_up_blocks: 100,
         },
     )
     .await?;

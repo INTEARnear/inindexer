@@ -11,11 +11,12 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use inindexer::{
-    AutoContinue, BlockRange, Checkpoint, Indexer, IndexerOptions, StreamerMessage,
+    AutoContinue, BlockRange, Indexer, IndexerOptions, StreamerMessage,
     near_utils::{MAINNET_GENESIS_BLOCK_HEIGHT, TESTNET_GENESIS_BLOCK_HEIGHT},
     neardata::NeardataProvider,
+    redb_storage::RedbStorage,
     run_indexer,
-    transaction_trees::TransactionTrees,
+    storage::IndexerStorage,
 };
 use near_indexer_primitives::types::BlockHeight;
 
@@ -104,6 +105,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         StartBlockHeight::Genesis => 0,
         StartBlockHeight::BlockHeight(_) => 100,
     };
+    // Only an auto-continuing download keeps its last block, with the transaction trees
+    let storage: Option<Box<dyn IndexerStorage>> = match end_block {
+        EndBlockHeight::AutoContinue => Some(Box::new(RedbStorage::new(path.join("storage.redb")))),
+        EndBlockHeight::Infinity | EndBlockHeight::BlockHeight(_) => None,
+    };
     let range = match (start_block, end_block) {
         (StartBlockHeight::Genesis, EndBlockHeight::Infinity) => BlockRange::Range {
             start_inclusive: start_block_height,
@@ -111,7 +117,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         (StartBlockHeight::Genesis, EndBlockHeight::AutoContinue) => {
             BlockRange::AutoContinue(AutoContinue {
-                checkpoint: Checkpoint::File(path.join("last_block.txt")),
                 start_height_if_none_processed: start_block_height,
                 end: inindexer::AutoContinueEnd::Infinite,
             })
@@ -130,7 +135,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         (StartBlockHeight::BlockHeight(start_block_height), EndBlockHeight::AutoContinue) => {
             BlockRange::AutoContinue(AutoContinue {
-                checkpoint: Checkpoint::File(path.join("last_block.txt")),
                 start_height_if_none_processed: start_block_height,
                 end: inindexer::AutoContinueEnd::Infinite,
             })
@@ -153,10 +157,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             range,
             stop_on_error: true,
             ctrl_c_handler: true,
-            transaction_trees: TransactionTrees {
-                warm_up_blocks,
-                ..Default::default()
-            },
+            storage,
+            warm_up_blocks,
         },
     )
     .await?;

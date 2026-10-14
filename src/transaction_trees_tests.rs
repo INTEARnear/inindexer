@@ -9,15 +9,14 @@ use serde::Deserialize;
 use temp_file::TempFile;
 
 use crate::{
-    AutoContinue, AutoContinueEnd, BlockRange, Checkpoint, Indexer,
-    IndexerExecutionOutcomeWithReceipt, IndexerOptions, StreamerMessage,
+    AutoContinue, AutoContinueEnd, BlockRange, Indexer, IndexerExecutionOutcomeWithReceipt,
+    IndexerOptions, StreamerMessage,
     indexer_state::InIndexerError,
+    redb_storage::RedbStorage,
     run_indexer,
+    storage::IndexerStorage,
     teardata::{TeardataError, TeardataProvider},
-    transaction_trees::{
-        TransactionTree, TransactionTreeStore, TransactionTrees, TransactionTreesError,
-        TransactionTreesStorage,
-    },
+    transaction_trees::{IndexerStorageError, TransactionTree, TransactionTreeStore},
 };
 
 /// Checks every tree it gets, and logs them to compare runs.
@@ -133,7 +132,7 @@ async fn recent_range(length: BlockHeight) -> Range<BlockHeight> {
 async fn run(
     indexer: &mut TreeIndexer,
     range: BlockRange,
-    transaction_trees: TransactionTrees,
+    storage: Option<Box<dyn IndexerStorage>>,
 ) -> Result<(), InIndexerError<TeardataError>> {
     run_indexer(
         indexer,
@@ -142,29 +141,36 @@ async fn run(
             stop_on_error: true,
             range,
             ctrl_c_handler: false,
-            transaction_trees,
+            storage,
+            warm_up_blocks: WARM_UP_BLOCKS,
         },
     )
     .await
 }
 
-fn in_memory() -> TransactionTrees {
-    TransactionTrees {
-        storage: TransactionTreesStorage::Memory,
-        warm_up_blocks: WARM_UP_BLOCKS,
-    }
+fn in_file(file: &TempFile) -> Option<Box<dyn IndexerStorage>> {
+    Some(Box::new(RedbStorage::new(file.path())))
 }
 
-fn in_file(file: &TempFile) -> TransactionTrees {
-    TransactionTrees {
-        storage: TransactionTreesStorage::Redb(file.path().into()),
-        warm_up_blocks: WARM_UP_BLOCKS,
-    }
+/// Runs the range in a task that panics after `crash_after` is processed.
+async fn crash(
+    range: BlockRange,
+    storage: Option<Box<dyn IndexerStorage>>,
+    crash_after: BlockHeight,
+) {
+    let crashing_run = tokio::spawn(async move {
+        let mut crashing = TreeIndexer {
+            crash_after: Some(crash_after),
+            ..Default::default()
+        };
+        run(&mut crashing, range, storage).await
+    })
+    .await;
+    assert!(crashing_run.unwrap_err().is_panic());
 }
 
-fn auto_continue(checkpoint: Checkpoint, start: BlockHeight, end: BlockHeight) -> BlockRange {
+fn auto_continue(start: BlockHeight, end: BlockHeight) -> BlockRange {
     BlockRange::AutoContinue(AutoContinue {
-        checkpoint,
         start_height_if_none_processed: start,
         end: AutoContinueEnd::Height(end),
     })
@@ -180,7 +186,7 @@ async fn check_trees_finish(range: Range<BlockHeight>, settle_blocks: BlockHeigh
             start_inclusive: range.start,
             end_exclusive: Some(range.end),
         },
-        in_memory(),
+        None,
     )
     .await
     .unwrap();
@@ -208,16 +214,16 @@ async fn trees_finish_on_recent_mainnet() {
 }
 
 #[tokio::test]
-#[should_panic(expected = "Increase TransactionTrees::warm_up_blocks")]
+#[should_panic(expected = "Increase IndexerOptions::warm_up_blocks")]
 async fn receipt_without_tree_panics() {
     let range = recent_range(10).await;
-    run(
+    run_indexer(
         &mut TreeIndexer::default(),
-        BlockRange::Range {
+        TeardataProvider::mainnet(),
+        IndexerOptions::default_with_range(BlockRange::Range {
             start_inclusive: range.start,
             end_exclusive: Some(range.end),
-        },
-        TransactionTrees::default(),
+        }),
     )
     .await
     .unwrap();
@@ -233,26 +239,20 @@ async fn trees_continue_after_restarts_and_crashes() {
             start_inclusive: range.start,
             end_exclusive: Some(range.end),
         },
-        in_memory(),
+        None,
     )
     .await
     .unwrap();
     let middle_index = uninterrupted.heights.len() / 2;
     let middle = uninterrupted.heights[middle_index];
 
-    // Stopped in the middle, then continued from the checkpoint file.
+    // Stopped in the middle, then continued from the last block the storage has as processed.
     let trees_file = temp_file::empty();
-    let checkpoint_file = temp_file::empty();
-    std::fs::remove_file(checkpoint_file.path()).unwrap();
     let mut restarted = TreeIndexer::default();
     for end in [middle, range.end] {
         run(
             &mut restarted,
-            auto_continue(
-                Checkpoint::File(checkpoint_file.path().into()),
-                range.start,
-                end,
-            ),
+            auto_continue(range.start, end),
             in_file(&trees_file),
         )
         .await
@@ -260,69 +260,49 @@ async fn trees_continue_after_restarts_and_crashes() {
     }
     assert_eq!(restarted.log, uninterrupted.log);
 
-    // Crashed after the indexer saved the middle block, before the trees were committed.
+    // Crashed after the middle block was processed, before the storage committed it, so it runs
+    // again.
     let trees_file = temp_file::empty();
-    let crashing_run = tokio::spawn({
-        let transaction_trees = in_file(&trees_file);
-        async move {
-            let mut crashing = TreeIndexer {
-                crash_after: Some(middle),
-                ..Default::default()
-            };
-            run(
-                &mut crashing,
-                BlockRange::Range {
-                    start_inclusive: range.start,
-                    end_exclusive: Some(range.end),
-                },
-                transaction_trees,
-            )
-            .await
-        }
-    })
+    crash(
+        auto_continue(range.start, range.end),
+        in_file(&trees_file),
+        middle,
+    )
     .await;
-    assert!(crashing_run.unwrap_err().is_panic());
     let trees_after_crash = TransactionTreeStore::open(in_file(&trees_file))
         .await
         .unwrap();
+    let before_middle = uninterrupted.heights[middle_index - 1];
+    assert_eq!(trees_after_crash.last_block(), Some(before_middle));
     assert_eq!(
-        trees_after_crash.last_block(),
-        Some(uninterrupted.heights[middle_index - 1])
+        trees_after_crash.last_processed_block().unwrap(),
+        Some(before_middle)
     );
     drop(trees_after_crash);
-
     let mut recovered = TreeIndexer::default();
     run(
         &mut recovered,
-        auto_continue(
-            Checkpoint::SavedByIndexer {
-                last_processed_block: Some(middle),
-            },
-            range.start,
-            range.end,
-        ),
+        auto_continue(range.start, range.end),
         in_file(&trees_file),
     )
     .await
     .unwrap();
-    let after_crash: Vec<_> = uninterrupted
+    let from_middle: Vec<_> = uninterrupted
         .log
-        .into_iter()
-        .filter(|(height, _)| *height > middle)
+        .iter()
+        .filter(|(height, _)| *height >= middle)
+        .cloned()
         .collect();
-    assert_eq!(recovered.log, after_crash);
+    assert_eq!(recovered.log, from_middle);
 
-    // The trees are now at the end of the range, so continuing from the middle again would give
-    // the indexer receipts twice.
+    // The storage is now at the end of the range, so starting from the middle again would give the
+    // indexer receipts twice.
     let ahead = run(
         &mut TreeIndexer::default(),
-        auto_continue(
-            Checkpoint::SavedByIndexer {
-                last_processed_block: Some(middle),
-            },
-            range.start,
-            range.end,
-        ),
+        BlockRange::Range {
+            start_inclusive: middle,
+            end_exclusive: Some(range.end),
+        },
         in_file(&trees_file),
     )
     .await;
@@ -330,9 +310,26 @@ async fn trees_continue_after_restarts_and_crashes() {
     assert!(
         matches!(
             ahead,
-            Err(InIndexerError::TransactionTrees(TransactionTreesError::Ahead { last_block, .. }))
+            Err(InIndexerError::Storage(IndexerStorageError::Ahead { last_block, .. }))
                 if last_block == last_height
         ),
         "{ahead:?}"
+    );
+}
+
+#[tokio::test]
+async fn auto_continue_needs_storage() {
+    let result = run(
+        &mut TreeIndexer::default(),
+        auto_continue(50_000_000, 50_000_010),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(
+            result,
+            Err(InIndexerError::Storage(IndexerStorageError::NoStorage))
+        ),
+        "{result:?}"
     );
 }

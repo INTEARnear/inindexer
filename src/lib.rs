@@ -8,19 +8,18 @@ pub mod near_utils;
 pub mod neardata;
 #[cfg(feature = "neardata-old")]
 pub mod neardata_old;
+#[cfg(feature = "redb")]
+pub mod redb_storage;
+pub mod storage;
 #[cfg(feature = "teardata")]
 pub mod teardata;
 #[cfg(all(test, feature = "teardata"))]
 mod teardata_tests;
 pub mod transaction_trees;
-#[cfg(all(test, feature = "teardata"))]
+#[cfg(all(test, feature = "teardata", feature = "redb"))]
 mod transaction_trees_tests;
 
-use std::{
-    fmt::Debug,
-    io,
-    path::{Path, PathBuf},
-};
+use std::fmt::Debug;
 
 use async_trait::async_trait;
 use indexer_state::{InIndexerError, IndexerState};
@@ -32,11 +31,10 @@ use near_indexer_primitives::{
 };
 use near_utils::MAINNET_GENESIS_BLOCK_HEIGHT;
 use serde::{Deserialize, Serialize};
+use storage::IndexerStorage;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use transaction_trees::{
-    TransactionTree, TransactionTreeStore, TransactionTrees, TransactionTreesError,
-};
+use transaction_trees::{IndexerStorageError, TransactionTree, TransactionTreeStore};
 
 #[async_trait]
 pub trait MessageStreamer {
@@ -136,36 +134,30 @@ pub async fn run_indexer<
     let mut indexer_state = IndexerState::new();
 
     let cancellation_token = CancellationToken::new();
-    let (start_block_height, end_block_height, mut expected_prev_height, checkpoint_file) =
-        match options.range {
-            BlockRange::Range {
-                start_inclusive,
-                end_exclusive,
-            } => (start_inclusive, end_exclusive, None, None),
-            BlockRange::AutoContinue(auto_continue) => {
-                let (last_processed_block, checkpoint_file) = match auto_continue.checkpoint {
-                    Checkpoint::SavedByIndexer {
-                        last_processed_block,
-                    } => (last_processed_block, None),
-                    Checkpoint::File(path) => (
-                        load_checkpoint_file(&path)
-                            .await
-                            .map_err(InIndexerError::Checkpoint)?,
-                        Some(path),
-                    ),
-                };
-                let start = last_processed_block
-                    .map_or(auto_continue.start_height_if_none_processed, |height| {
-                        height + 1
-                    });
-                let end = match auto_continue.end {
-                    AutoContinueEnd::Height(height) => Some(height),
-                    AutoContinueEnd::Count(count) => Some(start + count),
-                    AutoContinueEnd::Infinite => None,
-                };
-                (start, end, last_processed_block, checkpoint_file)
-            }
-        };
+    let mut transaction_trees = TransactionTreeStore::open(options.storage)
+        .await
+        .map_err(InIndexerError::Storage)?;
+    let (start_block_height, end_block_height, mut expected_prev_height) = match options.range {
+        BlockRange::Range {
+            start_inclusive,
+            end_exclusive,
+        } => (start_inclusive, end_exclusive, None),
+        BlockRange::AutoContinue(auto_continue) => {
+            let last_processed_block = transaction_trees
+                .last_processed_block()
+                .map_err(InIndexerError::Storage)?;
+            let start = last_processed_block
+                .map_or(auto_continue.start_height_if_none_processed, |height| {
+                    height + 1
+                });
+            let end = match auto_continue.end {
+                AutoContinueEnd::Height(height) => Some(height),
+                AutoContinueEnd::Count(count) => Some(start + count),
+                AutoContinueEnd::Infinite => None,
+            };
+            (start, end, last_processed_block)
+        }
+    };
 
     if options.ctrl_c_handler {
         let cancellation_token_2 = cancellation_token.clone();
@@ -175,25 +167,19 @@ pub async fn run_indexer<
         });
     }
 
-    let mut transaction_trees = TransactionTreeStore::open(options.transaction_trees)
-        .await
-        .map_err(InIndexerError::TransactionTrees)?;
     let first_block_to_read = match transaction_trees.last_block() {
         Some(last_block) if last_block >= start_block_height => {
-            return Err(InIndexerError::TransactionTrees(
-                TransactionTreesError::Ahead {
-                    last_block,
-                    next_block: start_block_height,
-                },
-            ));
+            return Err(InIndexerError::Storage(IndexerStorageError::Ahead {
+                last_block,
+                next_block: start_block_height,
+            }));
         }
         Some(last_block) => {
             expected_prev_height = Some(last_block);
             last_block + 1
         }
         None => {
-            let warm_up_start =
-                start_block_height.saturating_sub(transaction_trees.options().warm_up_blocks);
+            let warm_up_start = start_block_height.saturating_sub(options.warm_up_blocks);
             if warm_up_start < start_block_height {
                 expected_prev_height = None;
             }
@@ -227,7 +213,8 @@ pub async fn run_indexer<
         expected_prev_height = Some(header.height);
 
         transaction_trees.add_block(&message);
-        if message.block.header.height >= start_block_height {
+        let processed = message.block.header.height >= start_block_height;
+        if processed {
             match indexer_state
                 .process_block(indexer, &message, &transaction_trees)
                 .await
@@ -243,17 +230,12 @@ pub async fn run_indexer<
                     }
                 }
             }
-            if let Some(path) = &checkpoint_file {
-                save_checkpoint_file(path, message.block.header.height)
-                    .await
-                    .map_err(InIndexerError::Checkpoint)?;
-            }
         }
         // After the block is saved as processed, so that the trees are never ahead of the indexer.
         transaction_trees
-            .commit(message.block.header.height)
+            .commit(message.block.header.height, processed)
             .await
-            .map_err(InIndexerError::TransactionTrees)?;
+            .map_err(InIndexerError::Storage)?;
         if cancellation_token.is_cancelled() {
             log::info!(
                 "Received Ctrl+C signal, stopping after block {} is fully processed",
@@ -279,8 +261,15 @@ pub struct IndexerOptions {
     pub range: BlockRange,
     /// If true, the indexer will gracefully stop on Ctrl+C signal, after the block it's processing.
     pub ctrl_c_handler: bool,
-    /// Where transactions are kept until all their receipts have been executed.
-    pub transaction_trees: TransactionTrees,
+    /// Keeps the transaction trees and the last processed block between runs. `None` keeps the
+    /// trees only in memory, so they start from the warm-up again, and can't be used with
+    /// [`BlockRange::AutoContinue`].
+    pub storage: Option<Box<dyn IndexerStorage>>,
+    /// When the storage is empty, this many blocks before the first block to process are read into
+    /// the transaction trees without calling the indexer, so that receipts of transactions from
+    /// just before it have their trees too. A receipt of a transaction from before the blocks the
+    /// trees have read panics, since it has no tree.
+    pub warm_up_blocks: BlockHeightDelta,
 }
 
 /// Every block's `prev_height` is checked against the height of the block streamed before it, so a
@@ -293,8 +282,10 @@ pub enum BlockRange {
         start_inclusive: BlockHeight,
         end_exclusive: Option<BlockHeight>,
     },
-    /// Continues right after the last processed block of the [`Checkpoint`]. The first block's
-    /// `prev_height` must be that block.
+    /// Continues right after the last block committed to [`IndexerOptions::storage`] as processed,
+    /// which is committed after `process_block_end`. A crash between the indexer's own writes and
+    /// this one makes the block run again, unless the storage commits them together. The first
+    /// block's `prev_height` must be that block.
     AutoContinue(AutoContinue),
 }
 
@@ -304,34 +295,19 @@ impl IndexerOptions {
             stop_on_error: false,
             range,
             ctrl_c_handler: true,
-            transaction_trees: TransactionTrees::default(),
+            storage: None,
+            warm_up_blocks: 0,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct AutoContinue {
-    pub checkpoint: Checkpoint,
     /// Where to start when no block was processed yet. Default is the mainnet genesis block height.
     pub start_height_if_none_processed: BlockHeight,
     /// If set, the indexer will stop processing blocks after this height. If None, the indexer will process
     /// blocks infinitely.
     pub end: AutoContinueEnd,
-}
-
-/// Where the last processed block is kept
-#[derive(Debug)]
-pub enum Checkpoint {
-    /// The indexer saves every block as processed in the same write as the block's own data, see
-    /// [`Indexer::process_block_end`]. This is the last block it saved, `None` if it hasn't
-    /// processed any yet.
-    SavedByIndexer {
-        last_processed_block: Option<BlockHeight>,
-    },
-    /// A text file with the height of the next block to process, written after each block's
-    /// `process_block_end`. A crash between the indexer's own writes and this one makes the block
-    /// run again.
-    File(PathBuf),
 }
 
 #[derive(Debug)]
@@ -347,31 +323,8 @@ pub enum AutoContinueEnd {
 impl Default for AutoContinue {
     fn default() -> Self {
         Self {
-            checkpoint: Checkpoint::File(PathBuf::from("last-processed-block.txt")),
             start_height_if_none_processed: MAINNET_GENESIS_BLOCK_HEIGHT,
             end: AutoContinueEnd::Infinite,
         }
     }
-}
-
-/// The last processed block of a [`Checkpoint::File`], `None` if the file doesn't exist yet
-async fn load_checkpoint_file(path: &Path) -> io::Result<Option<BlockHeight>> {
-    let next_block_height: BlockHeight = match tokio::fs::read_to_string(path).await {
-        Ok(contents) => contents
-            .trim()
-            .parse()
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err),
-    };
-    Ok(Some(next_block_height - 1))
-}
-
-/// Written to a temporary file that is renamed over the checkpoint, so a crash mid-write can't
-/// leave it empty
-async fn save_checkpoint_file(path: &Path, last_processed_block: BlockHeight) -> io::Result<()> {
-    let mut temporary_path = path.as_os_str().to_owned();
-    temporary_path.push(".tmp");
-    tokio::fs::write(&temporary_path, (last_processed_block + 1).to_string()).await?;
-    tokio::fs::rename(&temporary_path, path).await
 }

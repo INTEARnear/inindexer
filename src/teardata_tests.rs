@@ -6,7 +6,6 @@ use serde::Deserialize;
 
 use crate::{
     BlockRange, Indexer, IndexerOptions, StreamerMessage, run_indexer, teardata::TeardataProvider,
-    transaction_trees::TransactionTrees,
 };
 
 #[derive(Deserialize)]
@@ -55,10 +54,7 @@ async fn check_range(range: Range<BlockHeight>) {
         &mut indexer,
         TeardataProvider::testnet(),
         IndexerOptions {
-            transaction_trees: TransactionTrees {
-                warm_up_blocks: WARM_UP_BLOCKS,
-                ..Default::default()
-            },
+            warm_up_blocks: WARM_UP_BLOCKS,
             ..IndexerOptions::default_with_range(BlockRange::Range {
                 start_inclusive: range.start,
                 end_exclusive: Some(range.end),

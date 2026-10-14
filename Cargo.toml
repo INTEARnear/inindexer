@@ -17,7 +17,7 @@ tokio = { version = "1.53", features = ["signal", "fs", "rt", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 semver = "1"
 futures = "0.3"
-redb = "4.3"
+redb = { version = "4.3", optional = true }
 tokio-util = "0.7"
 fastnear-neardata-fetcher = { version = "0.37", optional = true }
 fastnear-primitives = { version = "0.37", optional = true }
@@ -29,6 +29,7 @@ zstd = { version = "0.14", optional = true }
 neardata = ["dep:fastnear-neardata-fetcher", "dep:fastnear-primitives"]
 neardata-old = ["dep:reqwest"]
 teardata = ["dep:reqwest", "reqwest/zstd", "reqwest/gzip", "dep:tar", "dep:zstd"]
+redb = ["dep:redb"]
 
 [dev-dependencies]
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "time"] }
@@ -43,9 +44,9 @@ required-features = ["neardata-old"]
 [[example]]
 name = "ft-transfers"
 path = "examples/ft_transfers.rs"
-required-features = ["teardata"]
+required-features = ["teardata", "redb"]
 
 [[example]]
 name = "download"
 path = "examples/download.rs"
-required-features = ["neardata"]
+required-features = ["neardata", "redb"]

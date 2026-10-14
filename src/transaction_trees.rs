@@ -1,52 +1,17 @@
 use std::{
     collections::{HashMap, HashSet},
+    error::Error,
     fmt::Display,
-    path::PathBuf,
-    sync::Arc,
 };
 
-use near_indexer_primitives::{
-    CryptoHash, IndexerTransactionWithOutcome,
-    types::{BlockHeight, BlockHeightDelta},
-};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use near_indexer_primitives::{CryptoHash, IndexerTransactionWithOutcome, types::BlockHeight};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    IndexerExecutionOutcomeWithReceipt, StreamerMessage, near_utils::is_receipt_successful,
+    IndexerExecutionOutcomeWithReceipt, StreamerMessage,
+    near_utils::is_receipt_successful,
+    storage::{BlockCommit, IndexerStorage, SavedState},
 };
-
-const TREES: TableDefinition<[u8; 32], &[u8]> = TableDefinition::new("trees");
-const LAST_BLOCK: TableDefinition<(), BlockHeight> = TableDefinition::new("last_block");
-
-#[derive(Debug, Clone)]
-pub struct TransactionTrees {
-    pub storage: TransactionTreesStorage,
-    /// When the trees start empty, this many blocks before the first block to process are read
-    /// into them without calling the indexer, so that receipts of transactions from just before
-    /// it have their trees too. A receipt of a transaction from before the blocks the trees have
-    /// read panics, since it has no tree.
-    pub warm_up_blocks: BlockHeightDelta,
-}
-
-impl Default for TransactionTrees {
-    fn default() -> Self {
-        Self {
-            storage: TransactionTreesStorage::Memory,
-            warm_up_blocks: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum TransactionTreesStorage {
-    /// The trees are gone when the indexer stops, so they start from the warm-up again when it
-    /// restarts.
-    Memory,
-    /// A redb file, created if it doesn't exist, so that the trees continue with
-    /// [`crate::BlockRange::AutoContinue`]. Only one process can have it open.
-    Redb(PathBuf),
-}
 
 /// A transaction, and the receipts it has led to that have executed so far.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,73 +84,52 @@ impl TransactionTree {
     }
 }
 
-/// The trees, and the file they're committed to after every block, if they're kept in one.
 pub(crate) struct TransactionTreeStore {
-    options: TransactionTrees,
-    database: Option<Arc<Database>>,
+    storage: Option<Box<dyn IndexerStorage>>,
     trees: HashMap<CryptoHash, TransactionTree>,
     /// Trees that the current block changed and didn't finish, in the order it changed them.
     changed: Vec<CryptoHash>,
     /// Trees that the current block finished, in the order it changed them.
     finished: Vec<CryptoHash>,
-    /// The last block whose changes are committed.
     last_block: Option<BlockHeight>,
+    last_processed_block: Option<BlockHeight>,
 }
 
 impl TransactionTreeStore {
-    pub(crate) async fn open(options: TransactionTrees) -> Result<Self, TransactionTreesError> {
-        let mut store = Self {
-            options,
-            database: None,
-            trees: HashMap::new(),
+    pub(crate) async fn open(
+        mut storage: Option<Box<dyn IndexerStorage>>,
+    ) -> Result<Self, IndexerStorageError> {
+        let saved = match &mut storage {
+            Some(storage) => {
+                let saved = storage.load().await.map_err(IndexerStorageError::Storage)?;
+                log::info!(target: "inindexer::transaction_trees", "Loaded {} transaction trees, last block: {:?}, last processed block: {:?}", saved.trees.len(), saved.last_block, saved.last_processed_block);
+                saved
+            }
+            None => SavedState::default(),
+        };
+        Ok(Self {
+            storage,
+            trees: saved
+                .trees
+                .into_iter()
+                .map(|tree| (tree.transaction.transaction.hash, tree))
+                .collect(),
             changed: Vec::new(),
             finished: Vec::new(),
-            last_block: None,
-        };
-        let TransactionTreesStorage::Redb(path) = &store.options.storage else {
-            return Ok(store);
-        };
-        let path = path.clone();
-        let (database, last_block, stored_trees) =
-            tokio::task::spawn_blocking(move || -> Result<_, redb::Error> {
-                let database = Database::create(path)?;
-                let write = database.begin_write()?;
-                write.open_table(TREES)?;
-                write.open_table(LAST_BLOCK)?;
-                write.commit()?;
-                let read = database.begin_read()?;
-                let last_block = read
-                    .open_table(LAST_BLOCK)?
-                    .get(())?
-                    .map(|height| height.value());
-                let stored_trees = read
-                    .open_table(TREES)?
-                    .iter()?
-                    .map(|row| row.map(|(_, tree)| tree.value().to_vec()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                drop(read);
-                Ok((database, last_block, stored_trees))
-            })
-            .await
-            .expect("Opening transaction trees panicked")
-            .map_err(TransactionTreesError::Database)?;
-        for stored_tree in stored_trees {
-            let tree: TransactionTree = serde_json::from_slice(&stored_tree)
-                .map_err(TransactionTreesError::FailedToParse)?;
-            store.trees.insert(tree.transaction.transaction.hash, tree);
-        }
-        store.database = Some(Arc::new(database));
-        store.last_block = last_block;
-        log::info!(target: "inindexer::transaction_trees", "Loaded {} transaction trees, last block: {last_block:?}", store.trees.len());
-        Ok(store)
-    }
-
-    pub(crate) fn options(&self) -> &TransactionTrees {
-        &self.options
+            last_block: saved.last_block,
+            last_processed_block: saved.last_processed_block,
+        })
     }
 
     pub(crate) fn last_block(&self) -> Option<BlockHeight> {
         self.last_block
+    }
+
+    pub(crate) fn last_processed_block(&self) -> Result<Option<BlockHeight>, IndexerStorageError> {
+        if self.storage.is_none() {
+            return Err(IndexerStorageError::NoStorage);
+        }
+        Ok(self.last_processed_block)
     }
 
     pub(crate) fn tree(&self, transaction_hash: &CryptoHash) -> Option<&TransactionTree> {
@@ -239,58 +183,44 @@ impl TransactionTreeStore {
             .partition(|hash| self.trees[hash].is_complete());
     }
 
-    /// Removes the trees that the block finished, and writes the block's changes to the file, if
-    /// there is one.
+    /// Removes the trees that the block finished, and commits the block's changes to the storage,
+    /// if there is one.
     pub(crate) async fn commit(
         &mut self,
         block_height: BlockHeight,
-    ) -> Result<(), TransactionTreesError> {
+        processed: bool,
+    ) -> Result<(), IndexerStorageError> {
         let finished = std::mem::take(&mut self.finished);
+        let changed = std::mem::take(&mut self.changed);
+        if let Some(storage) = &mut self.storage {
+            storage
+                .commit(BlockCommit {
+                    block_height,
+                    processed,
+                    changed: changed.iter().map(|hash| &self.trees[hash]).collect(),
+                    finished: &finished,
+                })
+                .await
+                .map_err(IndexerStorageError::Storage)?;
+        }
         for hash in finished.iter() {
             self.trees.remove(hash);
         }
-        let changed = std::mem::take(&mut self.changed);
-        if let Some(database) = &self.database {
-            let changed_trees: Vec<_> = changed
-                .iter()
-                .filter_map(|hash| self.trees.get(hash))
-                .map(|tree| {
-                    (
-                        tree.transaction.transaction.hash.0,
-                        serde_json::to_vec(tree).expect("Transaction trees are serializable"),
-                    )
-                })
-                .collect();
-            let database = Arc::clone(database);
-            tokio::task::spawn_blocking(move || -> Result<(), redb::Error> {
-                let write = database.begin_write()?;
-                {
-                    let mut trees = write.open_table(TREES)?;
-                    for hash in finished.iter() {
-                        trees.remove(hash.0)?;
-                    }
-                    for (hash, tree) in changed_trees.iter() {
-                        trees.insert(hash, tree.as_slice())?;
-                    }
-                    write.open_table(LAST_BLOCK)?.insert((), block_height)?;
-                }
-                write.commit()?;
-                Ok(())
-            })
-            .await
-            .expect("Committing transaction trees panicked")
-            .map_err(TransactionTreesError::Database)?;
-        }
         self.last_block = Some(block_height);
+        if processed {
+            self.last_processed_block = Some(block_height);
+        }
         Ok(())
     }
 }
 
 #[derive(Debug)]
-pub enum TransactionTreesError {
-    Database(redb::Error),
-    FailedToParse(serde_json::Error),
-    /// The file has blocks that the indexer hasn't processed, so their receipts would be in the
+pub enum IndexerStorageError {
+    Storage(Box<dyn Error + Send + Sync>),
+    /// [`crate::BlockRange::AutoContinue`] is used without a storage to keep the last processed
+    /// block in.
+    NoStorage,
+    /// The storage has blocks that the indexer hasn't processed, so their receipts would be in the
     /// trees twice.
     Ahead {
         last_block: BlockHeight,
@@ -298,22 +228,23 @@ pub enum TransactionTreesError {
     },
 }
 
-impl Display for TransactionTreesError {
+impl Display for IndexerStorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransactionTreesError::Database(err) => write!(f, "Database error: {err}"),
-            TransactionTreesError::FailedToParse(err) => {
-                write!(f, "Failed to parse a transaction tree: {err}")
-            }
-            TransactionTreesError::Ahead {
+            IndexerStorageError::Storage(err) => write!(f, "Storage error: {err}"),
+            IndexerStorageError::NoStorage => write!(
+                f,
+                "BlockRange::AutoContinue needs IndexerOptions::storage to keep the last processed block in"
+            ),
+            IndexerStorageError::Ahead {
                 last_block,
                 next_block,
             } => write!(
                 f,
-                "The transaction trees file has blocks up to {last_block}, but the indexer continues at block {next_block}. Delete the file to start new trees"
+                "The storage has read blocks up to {last_block}, but the indexer continues at block {next_block}. Clear it to start over"
             ),
         }
     }
 }
 
-impl std::error::Error for TransactionTreesError {}
+impl Error for IndexerStorageError {}

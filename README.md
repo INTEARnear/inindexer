@@ -15,20 +15,20 @@ InIndexer is a NEAR indexer framework.
   transactions. Every receipt comes with the hash of its transaction (`tx_hash`), taken from neardata / teardata.
 - Retries, performance warnings, skipped blocks handling, and other features are built-in, so you can focus on
   your indexer logic.
-- Auto-Continue: `BlockRange::AutoContinue` continues right after the last processed block. Either the indexer
-  saves it in the same write as its data (`Checkpoint::SavedByIndexer`, e.g. in the database transaction it
-  commits in `process_block_end`), or inindexer saves it in a file after each block (`Checkpoint::File`).
-  Includes a Ctrl+C handler for graceful shutdown.
+- Auto-Continue: `BlockRange::AutoContinue` continues right after the last processed block, which inindexer
+  commits to `IndexerOptions::storage` with the transaction trees after each block. A storage in the indexer's
+  own database can commit them in the same transaction as the block's data. Includes a Ctrl+C handler for
+  graceful shutdown.
 - Skipped block detection: every block's `prev_height` is checked against the block before it, so a gap in the
   stream stops the indexer instead of silently losing data.
 - Transaction trees: every transaction is kept with the receipts it has led to until all of them have been
   executed, so `process_receipt` gets each receipt with its transaction's tree (to find the receipt that created
   it, or who started a chain of calls), and `process_transaction` gets each transaction with all of its receipts.
-  The trees are in memory by default, or in a [redb](https://github.com/cberner/redb) file
-  (`TransactionTreesStorage::File`) that is committed after each block is saved as processed, so they continue
-  with Auto-Continue, through Ctrl+C and crashes. When the trees start anywhere but genesis, set
-  `TransactionTrees::warm_up_blocks` so that receipts of transactions from before the first block have their
-  trees: a receipt without one panics.
+  The trees are in memory by default, or in an `IndexerStorage` that is committed after each block is processed,
+  so they continue with Auto-Continue, through Ctrl+C and crashes. The `redb` feature has `RedbStorage`, a
+  [redb](https://github.com/cberner/redb) file, and you can keep them anywhere else, like your database, by
+  implementing the trait. When the trees start anywhere but genesis, set `IndexerOptions::warm_up_blocks` so that
+  receipts of transactions from before the first block have their trees: a receipt without one panics.
 - Some helper functions and types for working with logs, balances, and other commonly used functionality in
   `near_utils`.
 
