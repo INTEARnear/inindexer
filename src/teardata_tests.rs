@@ -48,11 +48,11 @@ async fn status() -> Status {
 const WARM_UP_BLOCKS: BlockHeight = 100;
 
 /// The provider must yield exactly the heights for which `/v0/block` has a block, in order.
-async fn check_range(range: Range<BlockHeight>) {
+async fn check_range(provider: TeardataProvider, range: Range<BlockHeight>) {
     let mut indexer = CollectingIndexer::default();
     run_indexer(
         &mut indexer,
-        TeardataProvider::testnet(),
+        provider,
         IndexerOptions {
             warm_up_blocks: WARM_UP_BLOCKS,
             ..IndexerOptions::default_with_range(BlockRange::Range {
@@ -79,12 +79,30 @@ async fn check_range(range: Range<BlockHeight>) {
 async fn teardata_provider_archives() {
     let first = status().await.first_block_height;
     // Unaligned start and end, so partial archives at both edges are covered.
-    check_range(first + WARM_UP_BLOCKS + 3..first + WARM_UP_BLOCKS + 37).await;
+    check_range(
+        TeardataProvider::testnet(),
+        first + WARM_UP_BLOCKS + 3..first + WARM_UP_BLOCKS + 37,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn teardata_provider_tip() {
     let final_height = status().await.final_height;
     // Ends past the final head, so the provider has to wait for upcoming blocks.
-    check_range(final_height - 3..final_height + 4).await;
+    check_range(
+        TeardataProvider::testnet(),
+        final_height - 3..final_height + 4,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn teardata_provider_with_a_one_block_buffer_and_an_api_key() {
+    let first = status().await.first_block_height;
+    check_range(
+        TeardataProvider::testnet().block_buffer(1).api_key("test"),
+        first + WARM_UP_BLOCKS + 3..first + WARM_UP_BLOCKS + 37,
+    )
+    .await;
 }

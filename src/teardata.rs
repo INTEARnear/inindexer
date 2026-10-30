@@ -16,6 +16,7 @@ const TIP_LOOKAHEAD: usize = 3;
 /// far enough behind for archives to be faster.
 const TIP_BATCH: BlockHeight = 1000;
 const RETRY_DURATION: Duration = Duration::from_secs(1);
+const DEFAULT_BLOCK_BUFFER: usize = 100;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct TeardataProvider {
@@ -23,6 +24,8 @@ pub struct TeardataProvider {
     client: reqwest::Client,
     optimistic: bool,
     archive_workers: usize,
+    block_buffer: usize,
+    api_key: Option<String>,
 }
 
 impl TeardataProvider {
@@ -34,6 +37,8 @@ impl TeardataProvider {
             archive_workers: std::thread::available_parallelism()
                 .map(|p| p.get())
                 .unwrap_or(1),
+            block_buffer: DEFAULT_BLOCK_BUFFER,
+            api_key: None,
         }
     }
 
@@ -48,6 +53,8 @@ impl TeardataProvider {
             archive_workers: std::thread::available_parallelism()
                 .map(|p| p.get())
                 .unwrap_or(1),
+            block_buffer: DEFAULT_BLOCK_BUFFER,
+            api_key: None,
         }
     }
 
@@ -64,6 +71,18 @@ impl TeardataProvider {
     /// Number of archives downloaded in parallel while catching up.
     pub fn archive_workers(mut self, archive_workers: usize) -> Self {
         self.archive_workers = archive_workers;
+        self
+    }
+
+    /// Number of downloaded blocks that can wait for the indexer, 100 by default. Downloads stop
+    /// while it's full, so a bigger buffer keeps them going while the indexer takes long on a block.
+    pub fn block_buffer(mut self, block_buffer: usize) -> Self {
+        self.block_buffer = block_buffer;
+        self
+    }
+
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
         self
     }
 }
@@ -94,7 +113,7 @@ impl MessageStreamer for TeardataProvider {
         ),
         Self::Error,
     > {
-        let (tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel(self.block_buffer);
         let join_handle = tokio::spawn(async move {
             let end = last_block_exclusive.unwrap_or(BlockHeight::MAX);
             let mut next = first_block_inclusive;
@@ -192,11 +211,16 @@ impl TeardataProvider {
     /// Retries network errors, 5xx and blocks that are not produced yet. Other errors (like a
     /// height before the server's first block) are returned.
     async fn get_bytes(&self, path: &str) -> Result<Vec<u8>, TeardataError> {
+        // Logged and in errors without the API key
         let url = format!("{}{path}", self.base_url);
+        let request_url = match &self.api_key {
+            Some(api_key) => format!("{url}?apiKey={api_key}"),
+            None => url.clone(),
+        };
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let error = match self.client.get(&url).send().await {
+            let error = match self.client.get(&request_url).send().await {
                 Ok(response) if response.status().is_success() => match response.bytes().await {
                     Ok(body) => return Ok(body.to_vec()),
                     Err(err) => err.to_string(),
